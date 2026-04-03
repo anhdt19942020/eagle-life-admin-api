@@ -24,7 +24,6 @@ Route::middleware('auth:sanctum')->group(function () {
     // Orders - Phase 5
     Route::apiResource('orders', OrderController::class)->except(['store']);
 
-    // Import CSV - Phase 6
+    // Import JSON - Phase 6
     Route::post('/orders/import', [OrderImportController::class, 'import']);
-    Route::get('/orders/import/template', [OrderImportController::class, 'template']);
 });

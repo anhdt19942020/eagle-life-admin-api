@@ -4,53 +4,21 @@ namespace App\Services;
 
 use App\Models\Order;
 use App\Models\User;
-use League\Csv\Reader;
-use League\Csv\Statement;
 
 class OrderImportService
 {
     const CHUNK_SIZE = 100;
 
-    // CSV header: ebay_order_id bắt buộc
-    const REQUIRED_HEADERS = ['ebay_order_id', 'ebay_created_at'];
-
-    public function import(string $filePath): array
+    public function importFromArray(array $orders): array
     {
-        $csv = Reader::createFromPath($filePath, 'r');
-        $csv->setHeaderOffset(0);
-
-        $headers = array_map('trim', $csv->getHeader());
-        $missingHeaders = array_diff(self::REQUIRED_HEADERS, $headers);
-        if (!empty($missingHeaders)) {
-            throw new \InvalidArgumentException(
-                'File CSV thiếu cột bắt buộc: ' . implode(', ', $missingHeaders)
-            );
-        }
-
         $result = [
-            'total'   => 0,
+            'total'   => count($orders),
             'success' => 0,
             'failed'  => 0,
             'errors'  => [],
         ];
 
-        $records = Statement::create()->process($csv);
-        $rowNumber = 2;
-        $chunk = [];
-
-        foreach ($records as $record) {
-            $record = array_map('trim', $record);
-            $chunk[] = ['row' => $rowNumber, 'data' => $record];
-            $result['total']++;
-            $rowNumber++;
-
-            if (count($chunk) >= self::CHUNK_SIZE) {
-                $this->processChunk($chunk, $result);
-                $chunk = [];
-            }
-        }
-
-        if (!empty($chunk)) {
+        foreach (array_chunk($orders, self::CHUNK_SIZE, true) as $chunk) {
             $this->processChunk($chunk, $result);
         }
 
@@ -59,53 +27,35 @@ class OrderImportService
 
     private function processChunk(array $chunk, array &$result): void
     {
+        // Pre-load seller/buyer maps from employee_codes in this chunk
+        $buyerCodes  = array_filter(array_column($chunk, 'buyer_code'));
+        $sellerCodes = array_filter(array_column($chunk, 'seller_code'));
+        $allCodes    = array_unique(array_merge($buyerCodes, $sellerCodes));
+
+        $userMap = User::whereIn('employee_code', $allCodes)
+            ->pluck('id', 'employee_code');
+
         $toInsert = [];
 
-        foreach ($chunk as $item) {
-            $rowNumber = $item['row'];
-            $record = $item['data'];
-
-            if (empty($record['ebay_order_id'])) {
-                $result['failed']++;
-                $result['errors'][] = "Dòng {$rowNumber}: Thiếu mã đơn eBay (ebay_order_id)";
-                continue;
-            }
-
-            if (empty($record['ebay_created_at'])) {
-                $result['failed']++;
-                $result['errors'][] = "Dòng {$rowNumber}: Thiếu thời gian tạo eBay (ebay_created_at)";
-                continue;
-            }
+        foreach ($chunk as $index => $item) {
+            $rowNumber = $index + 2; // offset for display (row 1 = header)
 
             // Kiểm tra trùng ebay_order_id
-            if (Order::where('ebay_order_id', $record['ebay_order_id'])->exists()) {
+            if (Order::where('ebay_order_id', $item['ebay_order_id'])->exists()) {
                 $result['failed']++;
-                $result['errors'][] = "Dòng {$rowNumber}: Mã eBay '{$record['ebay_order_id']}' đã tồn tại";
+                $result['errors'][] = "Mục #{$rowNumber}: Mã eBay '{$item['ebay_order_id']}' đã tồn tại";
                 continue;
-            }
-
-            // Resolve buyer/seller từ employee_code
-            $buyerId = null;
-            if (!empty($record['buyer_code'])) {
-                $buyer = User::where('employee_code', $record['buyer_code'])->first();
-                $buyerId = $buyer?->id;
-            }
-
-            $sellerId = null;
-            if (!empty($record['seller_code'])) {
-                $seller = User::where('employee_code', $record['seller_code'])->first();
-                $sellerId = $seller?->id;
             }
 
             $toInsert[] = [
-                'ebay_order_id'      => $record['ebay_order_id'],
-                'buyer_id'           => $buyerId,
-                'seller_id'          => $sellerId,
-                'ebay_created_at'    => $record['ebay_created_at'],
-                'printify_created_at' => $record['printify_created_at'] ?? null,
-                'printify_order_id'  => $record['printify_order_id'] ?? null,
-                'created_at'         => now(),
-                'updated_at'         => now(),
+                'ebay_order_id'       => $item['ebay_order_id'],
+                'buyer_id'            => isset($item['buyer_code']) ? ($userMap[$item['buyer_code']] ?? null) : null,
+                'seller_id'           => isset($item['seller_code']) ? ($userMap[$item['seller_code']] ?? null) : null,
+                'ebay_created_at'     => $item['ebay_created_at'],
+                'printify_created_at' => $item['printify_created_at'] ?? null,
+                'printify_order_id'   => $item['printify_order_id'] ?? null,
+                'created_at'          => now(),
+                'updated_at'          => now(),
             ];
         }
 
