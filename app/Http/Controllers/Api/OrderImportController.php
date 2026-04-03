@@ -18,11 +18,11 @@ class OrderImportController extends Controller
         $request->validate([
             'orders'                        => 'required|array|min:1',
             'orders.*.ebay_order_id'        => 'required|string',
-            'orders.*.ebay_created_at'      => 'required|date',
+            'orders.*.ebay_created_at'      => 'required|string',
             'orders.*.buyer_code'           => 'nullable|string',
             'orders.*.seller_code'          => 'nullable|string',
             'orders.*.printify_order_id'    => 'nullable|string',
-            'orders.*.printify_created_at'  => 'nullable|date',
+            'orders.*.printify_created_at'  => 'nullable|string',
         ]);
 
         $result = $this->importService->importFromArray($request->orders);
