@@ -172,3 +172,63 @@ Trạng thái tài khoản sai mật khẩu hoặc bị vô hiệu hóa (`status
 2. **`401 Unauthorized`**: Token sai/hết hạn. Frontend cần clear `localStorage` và redirect về trang `/login`.
 3. **`403 Forbidden`**: User gọi tới API không có quyền hạn -> Báo lỗi "Bạn không có quyền..".
 4. **`500 Internal Server Error`**: Lỗi Server, hiển thị alert Toast chung chung. Tốt nhất là báo Developer Backend hỗ trợ.
+
+---
+
+## 3. Quản lý Nhân sự (Users)
+
+- Giao tiếp bằng Auth Bearer Token. Avatar chỉ gửi ID integer `1` đến `10`. Mã nhân viên được backend tự động khởi tạo.
+
+### 3.1. Danh sách Nhân viên
+
+- **Đường dẫn**: `GET /users`
+- **Query Params**: `search={keyword}`, `status={0/1}`, `role={admin/sale/...}`, `page={1}`, `per_page={15}`
+- **Response**: Trả về Paginated JSON.
+
+### 3.2. Tạo Nhân viên
+
+- **Đường dẫn**: `POST /users`
+- **Yêu cầu Body JSON**:
+
+```json
+{
+    "name": "Nguyễn Văn A",
+    "email": "nva@eaglelife.com",
+    "password": "strongPassword123",
+    "phone": "0988123456",
+    "avatar": 5,
+    "roles": ["manager"]
+}
+```
+
+_Lưu ý: Không gửi `employee_code` hay link `avatar`. `avatar` chỉ nhận integer từ 1 -> 10 đại diện cho 10 avatar icons mặc định trên FE._
+
+### 3.3. Sửa Nhân viên
+
+- **Đường dẫn**: `PUT /users/{id}`
+- **Yêu cầu Body JSON tương tự Tạo** (Chỉ cập nhật những field được submit lên)
+
+```json
+{
+    "name": "Nguyễn Văn A updated",
+    "avatar": 2,
+    "roles": ["manager", "admin"]
+}
+```
+
+### 3.4. Khoá/Mở khoá Nhân viên
+
+- **Đường dẫn**: `PATCH /users/{id}/status`
+- **Yêu cầu Body JSON**:
+
+```json
+{
+    "status": 1
+}
+```
+
+_(Lưu ý: 1 = Active, 0 = Banned)_
+
+### 3.5. Xoá Nhân viên
+
+- **Đường dẫn**: `DELETE /users/{id}`
