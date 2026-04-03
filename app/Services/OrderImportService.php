@@ -48,10 +48,28 @@ class OrderImportService
                 continue;
             }
 
+            $buyerId = null;
+            if (!empty($item['buyer_code'])) {
+                if (isset($userMap[$item['buyer_code']])) {
+                    $buyerId = $userMap[$item['buyer_code']];
+                } else {
+                    $result['errors'][] = "Mục #{$rowNumber} [{$item['ebay_order_id']}]: Mã buyer '{$item['buyer_code']}' không tồn tại trong hệ thống";
+                }
+            }
+
+            $sellerId = null;
+            if (!empty($item['seller_code'])) {
+                if (isset($userMap[$item['seller_code']])) {
+                    $sellerId = $userMap[$item['seller_code']];
+                } else {
+                    $result['errors'][] = "Mục #{$rowNumber} [{$item['ebay_order_id']}]: Mã seller '{$item['seller_code']}' không tồn tại trong hệ thống";
+                }
+            }
+
             $toInsert[] = [
                 'ebay_order_id'       => $item['ebay_order_id'],
-                'buyer_id'            => isset($item['buyer_code']) ? ($userMap[$item['buyer_code']] ?? null) : null,
-                'seller_id'           => isset($item['seller_code']) ? ($userMap[$item['seller_code']] ?? null) : null,
+                'buyer_id'            => $buyerId,
+                'seller_id'           => $sellerId,
                 'ebay_created_at'     => $this->parseDate($item['ebay_created_at']),
                 'printify_created_at' => isset($item['printify_created_at']) ? $this->parseDate($item['printify_created_at']) : null,
                 'printify_order_id'   => $item['printify_order_id'] ?? null,
