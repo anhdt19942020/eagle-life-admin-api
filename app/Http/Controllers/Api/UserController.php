@@ -50,9 +50,8 @@ class UserController extends Controller
             'password' => 'required|string|min:8',
             'username' => 'nullable|string|max:255|unique:users',
             'phone' => 'nullable|string|max:20|unique:users',
-            'avatar' => 'nullable|integer|between:1,10',
-            'roles' => 'required|array',
-            'roles.*' => 'exists:roles,name'
+            'avatar' => 'nullable|string',
+            'role' => 'nullable|string|exists:roles,name'
         ]);
 
         // Generate employee code (NV + 4 digits)
@@ -71,7 +70,9 @@ class UserController extends Controller
             'status' => $request->status ?? 1,
         ]);
 
-        $user->assignRole($request->roles);
+        if ($request->filled('role')) {
+            $user->assignRole($request->role);
+        }
 
         return $this->success($user->load('roles'), 'Tạo người dùng thành công', 201);
     }
@@ -92,9 +93,8 @@ class UserController extends Controller
             'password' => 'nullable|string|min:8',
             'username' => 'nullable|string|max:255|unique:users,username,' . $id,
             'phone' => 'nullable|string|max:20|unique:users,phone,' . $id,
-            'avatar' => 'nullable|integer|between:1,10',
-            'roles' => 'sometimes|array',
-            'roles.*' => 'exists:roles,name'
+            'avatar' => 'nullable|string',
+            'role' => 'nullable|string|exists:roles,name'
         ]);
 
         $data = $request->only(['name', 'email', 'username', 'phone', 'avatar']);
@@ -105,8 +105,11 @@ class UserController extends Controller
 
         $user->update($data);
 
-        if ($request->has('roles')) {
-            $user->syncRoles($request->roles);
+        if ($request->filled('role')) {
+            $user->syncRoles([$request->role]);
+        } else if ($request->has('role') && empty($request->role)) {
+            // Remove roles if empty string is passed
+            $user->syncRoles([]);
         }
 
         return $this->success($user->load('roles'), 'Cập nhật người dùng thành công');

@@ -177,7 +177,7 @@ Trạng thái tài khoản sai mật khẩu hoặc bị vô hiệu hóa (`status
 
 ## 3. Quản lý Nhân sự (Users)
 
-- Giao tiếp bằng Auth Bearer Token. Avatar chỉ gửi ID integer `1` đến `10`. Mã nhân viên được backend tự động khởi tạo.
+- Giao tiếp bằng Auth Bearer Token. Mã nhân viên được backend tự động khởi tạo.
 
 ### 3.1. Danh sách Nhân viên
 
@@ -188,20 +188,20 @@ Trạng thái tài khoản sai mật khẩu hoặc bị vô hiệu hóa (`status
 ### 3.2. Tạo Nhân viên
 
 - **Đường dẫn**: `POST /users`
-- **Yêu cầu Body JSON**:
+- **Yêu cầu Body JSON** (ví dụ chuẩn Payload từ FE):
 
 ```json
 {
-    "name": "Nguyễn Văn A",
-    "email": "nva@eaglelife.com",
-    "password": "strongPassword123",
-    "phone": "0988123456",
-    "avatar": 5,
-    "roles": ["manager"]
+    "name": "Yến",
+    "password": "12345678",
+    "role": "",
+    "email": "yen@gmail.com",
+    "phone": "09796643194",
+    "avatar": "https://api.dicebear.com/7.x/notionists/svg?seed=Bob&backgroundColor=c0aede"
 }
 ```
 
-_Lưu ý: Không gửi `employee_code` hay link `avatar`. `avatar` chỉ nhận integer từ 1 -> 10 đại diện cho 10 avatar icons mặc định trên FE._
+_Lưu ý: Không cần gửi `employee_code` (hệ thống tự code). Trường `role` truyền text (vd: `"admin"`, `"sale"` hoặc rỗng `""`)._
 
 ### 3.3. Sửa Nhân viên
 
@@ -210,9 +210,9 @@ _Lưu ý: Không gửi `employee_code` hay link `avatar`. `avatar` chỉ nhận 
 
 ```json
 {
-    "name": "Nguyễn Văn A updated",
-    "avatar": 2,
-    "roles": ["manager", "admin"]
+    "name": "Yến Updated",
+    "avatar": "https://api.dicebear.com/.../new",
+    "role": "manager"
 }
 ```
 
