@@ -11,9 +11,8 @@ class OrderImportService
 {
     const CHUNK_SIZE = 100;
 
-    // Expected CSV headers (case-insensitive)
-    const REQUIRED_HEADERS = ['customer_name'];
-    const OPTIONAL_HEADERS = ['customer_phone', 'customer_email', 'total_amount', 'status', 'sale_code', 'notes'];
+    // CSV header: ebay_order_id bắt buộc
+    const REQUIRED_HEADERS = ['ebay_order_id', 'ebay_created_at'];
 
     public function import(string $filePath): array
     {
@@ -29,14 +28,14 @@ class OrderImportService
         }
 
         $result = [
-            'total' => 0,
+            'total'   => 0,
             'success' => 0,
-            'failed' => 0,
-            'errors' => [],
+            'failed'  => 0,
+            'errors'  => [],
         ];
 
         $records = Statement::create()->process($csv);
-        $rowNumber = 2; // Row 1 is header
+        $rowNumber = 2;
         $chunk = [];
 
         foreach ($records as $record) {
@@ -51,7 +50,6 @@ class OrderImportService
             }
         }
 
-        // Process remaining records
         if (!empty($chunk)) {
             $this->processChunk($chunk, $result);
         }
@@ -67,36 +65,47 @@ class OrderImportService
             $rowNumber = $item['row'];
             $record = $item['data'];
 
-            if (empty($record['customer_name'])) {
+            if (empty($record['ebay_order_id'])) {
                 $result['failed']++;
-                $result['errors'][] = "Dòng {$rowNumber}: Thiếu tên khách hàng";
+                $result['errors'][] = "Dòng {$rowNumber}: Thiếu mã đơn eBay (ebay_order_id)";
                 continue;
             }
 
-            $status = $record['status'] ?? 'pending';
-            if (!in_array($status, ['pending', 'processing', 'completed', 'canceled'])) {
-                $status = 'pending';
+            if (empty($record['ebay_created_at'])) {
+                $result['failed']++;
+                $result['errors'][] = "Dòng {$rowNumber}: Thiếu thời gian tạo eBay (ebay_created_at)";
+                continue;
             }
 
-            $saleId = null;
-            if (!empty($record['sale_code'])) {
-                $sale = User::where('employee_code', $record['sale_code'])->first();
-                if ($sale) {
-                    $saleId = $sale->id;
-                }
+            // Kiểm tra trùng ebay_order_id
+            if (Order::where('ebay_order_id', $record['ebay_order_id'])->exists()) {
+                $result['failed']++;
+                $result['errors'][] = "Dòng {$rowNumber}: Mã eBay '{$record['ebay_order_id']}' đã tồn tại";
+                continue;
+            }
+
+            // Resolve buyer/seller từ employee_code
+            $buyerId = null;
+            if (!empty($record['buyer_code'])) {
+                $buyer = User::where('employee_code', $record['buyer_code'])->first();
+                $buyerId = $buyer?->id;
+            }
+
+            $sellerId = null;
+            if (!empty($record['seller_code'])) {
+                $seller = User::where('employee_code', $record['seller_code'])->first();
+                $sellerId = $seller?->id;
             }
 
             $toInsert[] = [
-                'order_code' => Order::generateCode(),
-                'customer_name' => $record['customer_name'],
-                'customer_phone' => $record['customer_phone'] ?? null,
-                'customer_email' => $record['customer_email'] ?? null,
-                'total_amount' => is_numeric($record['total_amount'] ?? null) ? $record['total_amount'] : 0,
-                'status' => $status,
-                'sale_id' => $saleId,
-                'notes' => $record['notes'] ?? null,
-                'created_at' => now(),
-                'updated_at' => now(),
+                'ebay_order_id'      => $record['ebay_order_id'],
+                'buyer_id'           => $buyerId,
+                'seller_id'          => $sellerId,
+                'ebay_created_at'    => $record['ebay_created_at'],
+                'printify_created_at' => $record['printify_created_at'] ?? null,
+                'printify_order_id'  => $record['printify_order_id'] ?? null,
+                'created_at'         => now(),
+                'updated_at'         => now(),
             ];
         }
 

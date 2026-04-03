@@ -7,29 +7,26 @@ use Illuminate\Database\Eloquent\Model;
 class Order extends Model
 {
     protected $fillable = [
-        'order_code',
-        'customer_name',
-        'customer_phone',
-        'customer_email',
-        'total_amount',
-        'status',
-        'sale_id',
-        'notes',
+        'ebay_order_id',
+        'buyer_id',
+        'seller_id',
+        'ebay_created_at',
+        'printify_created_at',
+        'printify_order_id',
     ];
 
     protected $casts = [
-        'total_amount' => 'decimal:2',
+        'ebay_created_at' => 'datetime',
+        'printify_created_at' => 'datetime',
     ];
 
-    public function sale()
+    public function buyer()
     {
-        return $this->belongsTo(User::class, 'sale_id');
+        return $this->belongsTo(User::class, 'buyer_id');
     }
 
-    public static function generateCode(): string
+    public function seller()
     {
-        $latest = self::orderBy('id', 'desc')->first();
-        $nextId = $latest ? $latest->id + 1 : 1;
-        return 'DH' . str_pad($nextId, 6, '0', STR_PAD_LEFT);
+        return $this->belongsTo(User::class, 'seller_id');
     }
 }

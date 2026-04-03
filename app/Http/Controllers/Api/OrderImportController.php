@@ -40,8 +40,8 @@ class OrderImportController extends Controller
             'Content-Disposition' => 'attachment; filename="order_import_template.csv"',
         ];
 
-        $columns = ['customer_name', 'customer_phone', 'customer_email', 'total_amount', 'status', 'sale_code', 'notes'];
-        $example = ['Nguyễn Văn A', '0909123456', 'nva@email.com', '1000000', 'pending', 'NV0001', 'Ghi chú'];
+        $columns = ['ebay_order_id', 'ebay_created_at', 'buyer_code', 'seller_code', 'printify_order_id', 'printify_created_at'];
+        $example = ['EB-123456789', '2026-04-01 08:30:00', 'NV0002', 'NV0001', '', ''];
 
         $content = implode(',', $columns) . "\n" . implode(',', $example) . "\n";
 

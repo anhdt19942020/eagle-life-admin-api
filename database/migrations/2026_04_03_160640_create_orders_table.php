@@ -13,14 +13,12 @@ return new class extends Migration
     {
         Schema::create('orders', function (Blueprint $table) {
             $table->id();
-            $table->string('order_code')->unique();
-            $table->string('customer_name');
-            $table->string('customer_phone')->nullable();
-            $table->string('customer_email')->nullable();
-            $table->decimal('total_amount', 15, 2)->default(0);
-            $table->string('status')->default('pending'); // pending, processing, completed, canceled
-            $table->foreignId('sale_id')->nullable()->constrained('users')->nullOnDelete(); // tracking sale agent
-            $table->text('notes')->nullable();
+            $table->string('ebay_order_id')->unique();                       // Mã đơn hàng eBay
+            $table->foreignId('buyer_id')->nullable()->constrained('users')->nullOnDelete();   // Người đặt
+            $table->foreignId('seller_id')->nullable()->constrained('users')->nullOnDelete();  // Seller phụ trách
+            $table->timestamp('ebay_created_at');                            // Thời gian tạo trên eBay
+            $table->timestamp('printify_created_at')->nullable();            // Thời gian tạo trên Printify
+            $table->string('printify_order_id')->nullable();                 // Mã Printify (cập nhật sau)
             $table->timestamps();
         });
     }
