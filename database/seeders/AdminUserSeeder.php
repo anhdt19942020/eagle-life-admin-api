@@ -28,5 +28,19 @@ class AdminUserSeeder extends Seeder
         );
 
         $admin->assignRole('admin');
+
+        $tronganh = User::firstOrCreate(
+            ['email' => 'anhdt19942020@gmail.com'],
+            [
+                'employee_code'     => 'ADMIN002',
+                'username'          => 'tronganh',
+                'name'              => 'Trọng Anh',
+                'password'          => Hash::make('123456'),
+                'status'            => true,
+                'email_verified_at' => now(),
+            ]
+        );
+
+        $tronganh->assignRole('admin');
     }
 }
