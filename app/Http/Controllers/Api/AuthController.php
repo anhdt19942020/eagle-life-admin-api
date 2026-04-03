@@ -4,7 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
+use App\Models\User;
 use Illuminate\Validation\ValidationException;
 use App\Traits\ApiResponse;
 
@@ -19,13 +20,13 @@ class AuthController extends Controller
             'password' => 'required',
         ]);
 
-        if (!Auth::attempt($request->only('email', 'password'))) {
+        $user = User::where('email', $request->email)->first();
+
+        if (! $user || ! Hash::check($request->password, $user->password)) {
             throw ValidationException::withMessages([
                 'email' => ['Tài khoản hoặc mật khẩu không chính xác.'],
             ]);
         }
-
-        $user = Auth::user();
         
         if (!$user->status) {
             throw ValidationException::withMessages([
