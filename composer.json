@@ -9,7 +9,7 @@
         "laravel/framework": "^11.0",
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^2.9",
-        "league/csv": "*",
+        "league/csv": "^9.28",
         "spatie/laravel-permission": "*"
     },
     "require-dev": {

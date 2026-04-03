@@ -229,6 +229,119 @@ _Lưu ý: Không cần gửi `employee_code` (hệ thống tự code). Trường
 
 _(Lưu ý: 1 = Active, 0 = Banned)_
 
-### 3.5. Xoá Nhân viên
-
 - **Đường dẫn**: `DELETE /users/{id}`
+
+---
+
+## 4. Quản lý Đơn hàng (Orders) - Phase 5
+
+> Tất cả endpoints đều yêu cầu `Authorization: Bearer <token>`.
+
+### 4.1. Danh sách Đơn hàng
+
+- **Đường dẫn**: `GET /orders`
+- **Query Params (tùy chọn)**:
+
+| Param       | Ý nghĩa                            | Ví dụ                  |
+| ----------- | ---------------------------------- | ---------------------- |
+| `search`    | Tìm theo mã, tên, SĐT, email khách | `search=Nguyễn`        |
+| `status`    | Lọc theo trạng thái                | `status=pending`       |
+| `sale_id`   | Lọc theo Sale phụ trách            | `sale_id=3`            |
+| `from_date` | Từ ngày (yyyy-mm-dd)               | `from_date=2026-01-01` |
+| `to_date`   | Đến ngày                           | `to_date=2026-12-31`   |
+| `page`      | Trang                              | `page=1`               |
+| `per_page`  | Số dòng/trang                      | `per_page=20`          |
+
+**Status hợp lệ**: `pending` | `processing` | `completed` | `canceled`
+
+### 4.2. Chi tiết Đơn hàng
+
+- **Đường dẫn**: `GET /orders/{id}`
+
+**Response (200 OK):**
+
+```json
+{
+    "success": true,
+    "message": "Lấy chi tiết đơn hàng thành công",
+    "data": {
+        "id": 1,
+        "order_code": "DH000001",
+        "customer_name": "Nguyễn Văn A",
+        "customer_phone": "0909123456",
+        "customer_email": "nva@email.com",
+        "total_amount": "1500000.00",
+        "status": "pending",
+        "notes": null,
+        "sale": {
+            "id": 3,
+            "name": "Trần Sale",
+            "employee_code": "NV0001"
+        },
+        "created_at": "2026-04-04T00:00:00.000000Z"
+    }
+}
+```
+
+### 4.3. Cập nhật Đơn hàng
+
+- **Đường dẫn**: `PUT /orders/{id}`
+- **Body JSON** (chỉ các field cần cập nhật):
+
+```json
+{
+    "status": "processing",
+    "sale_id": 3,
+    "notes": "Đã liên hệ khách"
+}
+```
+
+### 4.4. Xoá Đơn hàng
+
+- **Đường dẫn**: `DELETE /orders/{id}`
+
+---
+
+## 5. Import Đơn hàng CSV - Phase 6
+
+### 5.1. Import CSV
+
+- **Đường dẫn**: `POST /orders/import`
+- **Content-Type**: `multipart/form-data`
+- **Form field**: `file` (file `.csv`, tối đa 10MB)
+
+**Cấu trúc CSV yêu cầu:**
+
+| Cột              | Bắt buộc | Mô tả                            |
+| ---------------- | -------- | -------------------------------- |
+| `customer_name`  | ✅       | Tên khách hàng                   |
+| `customer_phone` | ❌       | Số điện thoại                    |
+| `customer_email` | ❌       | Email                            |
+| `total_amount`   | ❌       | Giá trị đơn hàng                 |
+| `status`         | ❌       | Trạng thái (mặc định: `pending`) |
+| `sale_code`      | ❌       | Mã nhân viên (vd: `NV0001`)      |
+| `notes`          | ❌       | Ghi chú                          |
+
+**Response (200 OK):**
+
+```json
+{
+    "success": true,
+    "message": "Import hoàn tất: 150/152 thành công",
+    "data": {
+        "total": 152,
+        "success": 150,
+        "failed": 2,
+        "errors": [
+            "Dòng 5: Thiếu tên khách hàng",
+            "Dòng 89: Thiếu tên khách hàng"
+        ]
+    }
+}
+```
+
+### 5.2. Tải File CSV Mẫu
+
+- **Đường dẫn**: `GET /orders/import/template`
+- **Response**: Tự động download file `order_import_template.csv`
+- _Không cần Bearer Token_
