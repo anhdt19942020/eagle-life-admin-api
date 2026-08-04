@@ -188,8 +188,108 @@ class OrderImportService
         return true;
     }
 
-    private function address(array $row): array { $name = preg_split('/\s+/', trim((string) $row['Ship To Name']), 2); return ['first_name' => $name[0] ?: 'Customer', 'last_name' => $name[1] ?? null, 'phone' => $row['Ship To Phone'] ?? null, 'address_line1' => trim((string) $row['Ship To Address 1']), 'address_line2' => $row['Ship To Address 2'] ?? null, 'city' => trim((string) $row['Ship To City']), 'region' => $row['Ship To State'] ?? null, 'postal_code' => trim((string) $row['Ship To Zip']), 'country_code' => strtoupper(trim((string) $row['Ship To Country']))]; }
-    private function validateCsvRow(array $row): void { foreach (['Order Number','Sale Date','Item Number','Quantity','Ship To Name','Ship To Address 1','Ship To City','Ship To Zip','Ship To Country'] as $field) if (trim((string) ($row[$field] ?? '')) === '') throw new RuntimeException("CSV row {$row['_row']} is missing {$field}."); if (!Carbon::hasFormat(trim((string) $row['Sale Date']), 'M-d-y')) throw new RuntimeException("CSV row {$row['_row']} has an invalid Sale Date."); if (!ctype_digit(trim((string) $row['Quantity'])) || (int) $row['Quantity'] < 1) throw new RuntimeException("CSV row {$row['_row']} has an invalid quantity."); foreach (['Sold For','Total Price','Shipping And Handling'] as $field) if (!preg_match('/^\$?\s*\d+(?:,\d{3})*(?:\.\d{2})?$/', trim((string) $row[$field]))) throw new RuntimeException("CSV row {$row['_row']} has an invalid {$field}."); }
+    private function address(array $row): array
+    {
+        $name = preg_split('/\s+/', trim((string) $row['Ship To Name']), 2);
+        $country = trim((string) $row['Ship To Country']);
+
+        return [
+            'first_name' => $name[0] ?: 'Customer',
+            'last_name' => $name[1] ?? null,
+            'phone' => $row['Ship To Phone'] ?? null,
+            'address_line1' => trim((string) $row['Ship To Address 1']),
+            'address_line2' => $row['Ship To Address 2'] ?? null,
+            'city' => trim((string) $row['Ship To City']),
+            'region' => $row['Ship To State'] ?? null,
+            'postal_code' => trim((string) $row['Ship To Zip']),
+            'country_code' => $this->countryCode($country),
+            'country' => $country,
+        ];
+    }
+
+    private function countryCode(string $value): string
+    {
+        $trimmed = trim($value);
+        $upper = strtoupper($trimmed);
+
+        if (preg_match('/^[A-Z]{2}$/', $upper) === 1) {
+            return $upper;
+        }
+
+        $map = [
+            'UNITED STATES' => 'US',
+            'UNITED STATES OF AMERICA' => 'US',
+            'USA' => 'US',
+            'UNITED KINGDOM' => 'GB',
+            'GREAT BRITAIN' => 'GB',
+            'ENGLAND' => 'GB',
+            'CANADA' => 'CA',
+            'AUSTRALIA' => 'AU',
+            'GERMANY' => 'DE',
+            'FRANCE' => 'FR',
+            'ITALY' => 'IT',
+            'SPAIN' => 'ES',
+            'MEXICO' => 'MX',
+            'JAPAN' => 'JP',
+            'NETHERLANDS' => 'NL',
+            'BELGIUM' => 'BE',
+            'IRELAND' => 'IE',
+            'NEW ZEALAND' => 'NZ',
+            'SWEDEN' => 'SE',
+            'NORWAY' => 'NO',
+            'DENMARK' => 'DK',
+            'SWITZERLAND' => 'CH',
+            'AUSTRIA' => 'AT',
+            'POLAND' => 'PL',
+            'PORTUGAL' => 'PT',
+            'BRAZIL' => 'BR',
+            'INDIA' => 'IN',
+            'SINGAPORE' => 'SG',
+            'HONG KONG' => 'HK',
+            'TAIWAN' => 'TW',
+            'SOUTH KOREA' => 'KR',
+            'KOREA, SOUTH' => 'KR',
+            'PHILIPPINES' => 'PH',
+            'THAILAND' => 'TH',
+            'VIETNAM' => 'VN',
+            'VIET NAM' => 'VN',
+        ];
+
+        if (! isset($map[$upper])) {
+            throw new RuntimeException("Unsupported Ship To Country: {$trimmed}");
+        }
+
+        return $map[$upper];
+    }
+
+    private function validateCsvRow(array $row): void
+    {
+        foreach (['Order Number', 'Sale Date', 'Item Number', 'Quantity', 'Ship To Name', 'Ship To Address 1', 'Ship To City', 'Ship To Zip', 'Ship To Country'] as $field) {
+            if (trim((string) ($row[$field] ?? '')) === '') {
+                throw new RuntimeException("CSV row {$row['_row']} is missing {$field}.");
+            }
+        }
+
+        if (! Carbon::hasFormat(trim((string) $row['Sale Date']), 'M-d-y')) {
+            throw new RuntimeException("CSV row {$row['_row']} has an invalid Sale Date.");
+        }
+
+        if (! ctype_digit(trim((string) $row['Quantity'])) || (int) $row['Quantity'] < 1) {
+            throw new RuntimeException("CSV row {$row['_row']} has an invalid quantity.");
+        }
+
+        foreach (['Sold For', 'Total Price', 'Shipping And Handling'] as $field) {
+            if (! preg_match('/^\$?\s*\d+(?:,\d{3})*(?:\.\d{2})?$/', trim((string) $row[$field]))) {
+                throw new RuntimeException("CSV row {$row['_row']} has an invalid {$field}.");
+            }
+        }
+
+        try {
+            $this->countryCode(trim((string) $row['Ship To Country']));
+        } catch (RuntimeException $exception) {
+            throw new RuntimeException("CSV row {$row['_row']} has an unsupported Ship To Country.", 0, $exception);
+        }
+    }
     private function lineItemKey(array $row): string { $transaction = trim((string) ($row['Transaction ID'] ?? '')); return $transaction === '' ? 'fallback:'.$this->fallbackIdentity($row) : 'transaction:'.$transaction; }
     private function fallbackIdentity(array $row): string { return hash('sha256', implode('|', [trim((string) ($row['Item Number'] ?? '')), trim((string) ($row['Custom Label'] ?? '')), trim((string) ($row['Variation Details'] ?? '')), $this->money($row['Sold For'] ?? null), 'USD'])); }
     private function upsertLineItem(int $orderId, array $row, int $quantity): void { $transaction = trim((string) ($row['Transaction ID'] ?? '')); $price = $this->money($row['Sold For'] ?? null); $fallback = $transaction === '' ? $this->fallbackIdentity($row) : null; $identity = $transaction === '' ? ['fallback_identity' => $fallback] : ['transaction_id' => $transaction]; $item = OrderLineItem::firstOrNew(['order_id' => $orderId] + $identity); $item->fill(['transaction_id' => $transaction ?: null, 'fallback_identity' => $fallback, 'item_number' => $row['Item Number'] ?? null, 'title' => $row['Item Title'] ?? null, 'custom_label' => $row['Custom Label'] ?? null, 'variation' => $row['Variation Details'] ?? null, 'quantity' => $quantity, 'unit_price' => $price, 'currency' => 'USD', 'ebay_raw' => $this->sanitizeCsvPayload($row)])->save(); }

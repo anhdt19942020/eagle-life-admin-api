@@ -111,4 +111,30 @@ class EbayCsvImportTest extends TestCase
         $this->assertSame('updated@members.ebay.com', $order->ebay_export_rows[0]['Buyer Email']);
         $this->assertSame('updated@members.ebay.com', $order->lineItems->first()->ebay_raw['Buyer Email']);
     }
+
+    public function test_it_normalizes_ship_to_country_names_to_iso_codes(): void
+    {
+        $csv = "Order Number,Sale Date,Item Number,Quantity,Sold For,Shipping And Handling,Total Price,Ship To Name,Ship To Address 1,Ship To City,Ship To State,Ship To Zip,Ship To Country\n"
+            ."13-14975-00010,Aug-02-26,123,1,$10.00,$0.00,$10.00,Jane Doe,1 Main St,Austin,TX,78701,United States\n"
+            ."13-14975-00011,Aug-02-26,124,1,$10.00,$0.00,$10.00,John Smith,2 High St,London,,SW1A 1AA,United Kingdom\n";
+
+        app(OrderImportService::class)->importFromCsv(UploadedFile::fake()->createWithContent('orders.csv', $csv), null);
+
+        $us = Order::where('ebay_order_number', '13-14975-00010')->firstOrFail()->fulfillmentAddress;
+        $uk = Order::where('ebay_order_number', '13-14975-00011')->firstOrFail()->fulfillmentAddress;
+
+        $this->assertSame('US', $us->country_code);
+        $this->assertSame('United States', $us->country);
+        $this->assertSame('GB', $uk->country_code);
+        $this->assertSame('United Kingdom', $uk->country);
+    }
+
+    public function test_it_rejects_unsupported_ship_to_country_names(): void
+    {
+        $csv = "Order Number,Sale Date,Item Number,Quantity,Sold For,Shipping And Handling,Total Price,Ship To Name,Ship To Address 1,Ship To City,Ship To Zip,Ship To Country\n"
+            ."13-14975-00010,Aug-02-26,123,1,$10.00,$0.00,$10.00,Jane Doe,1 Main St,Austin,78701,Narnia\n";
+
+        $this->expectException(\RuntimeException::class);
+        app(OrderImportService::class)->importFromCsv(UploadedFile::fake()->createWithContent('orders.csv', $csv), null);
+    }
 }
