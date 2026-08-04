@@ -95,6 +95,7 @@ class EbayCsvImportTest extends TestCase
         $this->assertSame('harharrlind', $order->ebay_buyer_username);
         $this->assertSame('Lindsey Harris', $order->ebay_buyer_name);
         $this->assertSame('buyer@members.ebay.com', $order->ebay_buyer_email);
+        $this->assertSame('buyer@members.ebay.com', $order->fulfillmentAddress->email);
         $this->assertSame('buyer@members.ebay.com', $order->ebay_export_rows[0]['Buyer Email']);
         $this->assertSame('Yes', $order->ebay_export_rows[0]['Sold Via Promoted Listings']);
         $this->assertArrayNotHasKey('_row', $order->ebay_export_rows[0]);
@@ -104,10 +105,11 @@ class EbayCsvImportTest extends TestCase
         $updated = str_replace('buyer@members.ebay.com', 'updated@members.ebay.com', $row);
         $service->importFromCsv(UploadedFile::fake()->createWithContent('second.csv', "{$header}\n{$updated}\n"), null);
 
-        $order->refresh()->load('lineItems');
+        $order->refresh()->load(['lineItems', 'fulfillmentAddress']);
         $this->assertSame(1, Order::count());
         $this->assertCount(1, $order->lineItems);
         $this->assertSame('updated@members.ebay.com', $order->ebay_buyer_email);
+        $this->assertSame('updated@members.ebay.com', $order->fulfillmentAddress->email);
         $this->assertSame('updated@members.ebay.com', $order->ebay_export_rows[0]['Buyer Email']);
         $this->assertSame('updated@members.ebay.com', $order->lineItems->first()->ebay_raw['Buyer Email']);
     }

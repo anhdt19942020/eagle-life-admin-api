@@ -196,6 +196,7 @@ class OrderImportService
         return [
             'first_name' => $name[0] ?: 'Customer',
             'last_name' => $name[1] ?? null,
+            'email' => $this->nullableTrim($row['Buyer Email'] ?? null),
             'phone' => $row['Ship To Phone'] ?? null,
             'address_line1' => trim((string) $row['Ship To Address 1']),
             'address_line2' => $row['Ship To Address 2'] ?? null,
