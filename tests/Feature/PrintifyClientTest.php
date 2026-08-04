@@ -31,4 +31,18 @@ class PrintifyClientTest extends TestCase
         $this->assertSame(['data' => []], app(PrintifyClient::class)->get('/shops.json'));
         Http::assertSentCount(2);
     }
+
+    public function test_it_posts_json_payload_with_bearer_token(): void
+    {
+        config()->set('services.printify.token', 'test-pat');
+        config()->set('services.printify.base_url', 'https://printify.test/v1');
+        Http::fake(['printify.test/*' => Http::response(['id' => 'pog-1'], 200)]);
+
+        $result = app(PrintifyClient::class)->post('/shops/101/orders.json', ['external_id' => '13-14975-00010']);
+
+        $this->assertSame(['id' => 'pog-1'], $result);
+        Http::assertSent(fn ($request) => $request->method() === 'POST'
+            && $request->hasHeader('Authorization', 'Bearer test-pat')
+            && $request['external_id'] === '13-14975-00010');
+    }
 }

@@ -499,7 +499,7 @@ File export từ eBay; parser bỏ dòng rỗng trước header, group theo `Ord
 | `printify.catalog.view`           | List shops / products               | ✅           |
 | `printify.shop-readiness.confirm` | Confirm Manual approval trên shop   | ✅           |
 | `printify.sync`                   | Reserved (Artisan/schedule)         | ❌ HTTP      |
-| `printify.order.create`           | Preview/tạo đơn Printify            | ✅ preview   |
+| `printify.order.create`           | Preview/tạo đơn Printify            | ✅ preview + create |
 | `printify.reconcile`              | Đối soát (sau)                      | ❌           |
 
 ### 6.2. Env backend (không expose ra FE)
@@ -553,7 +553,21 @@ File export từ eBay; parser bỏ dòng rỗng trước header, group theo `Ord
 
 **Response `data`:** `ready`, `errors`, `line_mappings[]`, `payload` (null nếu chưa ready). `payload` khớp shape create-order Printify (`external_id`, `line_items`, `address_to`, …).
 
-### 6.7. Sync jobs (Ops — để sau khi ưu tiên import xong)
+### 6.7. Create Printify order (outbound)
+
+- **Đường dẫn**: `POST /orders/{order}/printify-create`
+- **Permission**: `printify.order.create`
+- **Body:** giống `printify-preview` (`shop_id` bắt buộc, `line_mappings` optional).
+
+Luồng (as implemented):
+
+1. Nếu đã có `printify_orders` cùng `printify_shop_id` + `ebay_order_number` → **không** gọi Printify; `created=false`, trả bản ghi hiện có.
+2. Build payload qua cùng logic preview; chưa `ready` → `422`.
+3. `POST /shops/{remoteShopId}/orders.json` với payload; lưu `printify_orders` (`intent_state=created`) và gắn `orders.printify_order_id`.
+
+**Response `data`:** `created` (bool), `printify_order`, `remote` (JSON Printify hoặc `[]` nếu đã tồn tại), `preview` (object preview hoặc `[]`).
+
+### 6.8. Sync jobs (Ops — để sau khi ưu tiên import xong)
 
 | Artisan command | Mô tả |
 | --- | --- |
