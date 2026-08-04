@@ -343,7 +343,33 @@ Eager-load: `buyer`, `seller`, `fulfillmentAddress`, `lineItems`. Response kèm 
 
 > Yêu cầu `Authorization: Bearer <token>`.  
 > `POST /orders/import` và `POST /orders/import-csv` cần permission `orders.import`.  
-> **Ưu tiên hiện tại:** đưa đơn eBay vào hệ thống. Sync/lấy order từ Printify để bước sau.
+> **Ưu tiên hiện tại:** đưa đơn eBay vào hệ thống. Sync/lấy order từ Printify để bước sau.  
+> **FE production:** import CSV eBay dùng `POST /orders/import-csv` (multipart), không parse rồi đẩy JSON vào `/orders/import`.
+
+### 5.0. Chính sách trùng đơn / re-import (as implemented)
+
+Hai endpoint **không** dùng chung một rule. Không giả định JSON và CSV xử lý trùng giống nhau.
+
+| Endpoint | Khóa trùng | Khi gặp đơn đã có | Response khi trùng | HTTP |
+|----------|------------|-------------------|--------------------|------|
+| `POST /orders/import` | `ebay_order_id` | **Skip** item đó — không update | `failed++`, message trong `errors` (batch vẫn chạy tiếp) | `200` |
+| `POST /orders/import-csv` | `Order Number` → `ebay_order_number` | **Upsert** order + line items | `created` / `updated` tăng tương ứng; batch item `outcome` = `created`\|`updated` | `200` |
+
+**CSV line-item identity (idempotent):** ưu tiên `Transaction ID`; nếu trống thì fallback hash từ `Item Number` + `Custom Label` + `Variation Details` + `Sold For` (USD). Re-import cùng identity → cập nhật dòng đó, không nhân đôi.
+
+**Verified by**
+- JSON skip: `tests/Feature/EbayImportHttpTest.php` → `test_json_import_counts_duplicate_as_failed`
+- CSV idempotent (không có Transaction ID): `tests/Feature/EbayCsvImportTest.php` → `test_fallback_line_items_are_idempotent_when_transaction_id_is_absent`
+- CSV re-import (có Transaction ID): `tests/Feature/EbayCsvImportTest.php` → `test_reimport_with_transaction_identity_keeps_a_single_line_item`
+- CSV re-import overwrite raw/buyer: `tests/Feature/EbayCsvImportTest.php` → `test_it_persists_full_csv_payload_and_buyer_fields`
+
+**Evidence (code):** `OrderImportService::importFromArray`, `persistCsvOrder`, `upsertLineItem` / `lineItemKey` / `fallbackIdentity`.
+
+**Operator notes (as implemented)**
+- Re-export từ eBay Seller Hub → upload lại qua `POST /orders/import-csv` (FE production cũng dùng path này).
+- `POST /orders/import` (JSON) chỉ **tạo mới**; trùng `ebay_order_id` bị skip, không refresh address/line/raw.
+- Re-import CSV refresh: order metadata, buyer fields, `ebay_export_rows`, fulfillment address (`updateOrCreate`), và line items khớp identity (kèm `ebay_raw`).
+- Re-import CSV **không prune** line item cũ: dòng có trong DB nhưng không còn trong file lần sau vẫn giữ nguyên (chỉ upsert các dòng có trong file).
 
 ### 5.1. Import JSON (đơn giản)
 
@@ -387,7 +413,7 @@ Eager-load: `buyer`, `seller`, `fulfillmentAddress`, `lineItems`. Response kèm 
 }
 ```
 
-> Bản ghi trùng `ebay_order_id` sẽ bị bỏ qua và ghi vào `errors` (vẫn HTTP 200).
+> Trùng đơn: xem [§5.0](#50-chính-sách-trùng-đơn--re-import-as-implemented) — JSON **skip**, không update.
 
 ### 5.2. Import CSV eBay (Sold Orders)
 
@@ -450,7 +476,7 @@ File export từ eBay; parser bỏ dòng rỗng trước header, group theo `Ord
 }
 ```
 
-> Validate toàn bộ file trước khi persist. Lỗi header/date/money → `422`, batch `failed`, không tạo order. Persist từng order trong transaction riêng (không phải một outer transaction cho cả file). Re-import cùng `Order Number` → `updated` (idempotent theo `Transaction ID` hoặc fallback identity).
+> Validate toàn bộ file trước khi persist. Lỗi header/date/money → `422`, batch `failed`, không tạo order. Persist từng order trong transaction riêng (không phải một outer transaction cho cả file). Trùng / re-import: xem [§5.0](#50-chính-sách-trùng-đơn--re-import-as-implemented) — CSV **upsert**.
 
 ### 5.3. Tải CSV mẫu
 
