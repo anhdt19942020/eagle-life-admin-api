@@ -7,6 +7,8 @@ use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\OrderImportController;
+use App\Http\Controllers\Api\PrintifyProductController;
+use App\Http\Controllers\Api\PrintifyShopController;
 
 Route::post('/login', [AuthController::class, 'login']);
 
@@ -25,5 +27,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('orders', OrderController::class)->except(['store']);
 
     // Import JSON - Phase 6
-    Route::post('/orders/import', [OrderImportController::class, 'import']);
+    Route::post('/orders/import', [OrderImportController::class, 'import'])->middleware('permission:orders.import');
+    Route::post('/orders/import-csv', [OrderImportController::class, 'importCsv'])->middleware('permission:orders.import');
+    Route::get('/printify/shops', [PrintifyShopController::class, 'index'])->middleware('permission:printify.catalog.view');
+    Route::post('/printify/shops/{shop}/confirm-manual-approval', [PrintifyShopController::class, 'confirmManualApproval'])->middleware('permission:printify.shop-readiness.confirm');
+    Route::get('/printify/products', [PrintifyProductController::class, 'index'])->middleware('permission:printify.catalog.view');
 });

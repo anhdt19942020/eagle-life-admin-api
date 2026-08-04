@@ -31,4 +31,13 @@ return [
         ],
     ],
 
+    'printify' => [
+        'token' => env('PRINTIFY_TOKEN'),
+        'base_url' => env('PRINTIFY_BASE_URL', 'https://api.printify.com/v1'),
+        'timeout' => (int) env('PRINTIFY_TIMEOUT', 15),
+        'retry_times' => (int) env('PRINTIFY_RETRY_TIMES', 3),
+        'retry_sleep_ms' => (int) env('PRINTIFY_RETRY_SLEEP_MS', 500),
+        'sync_lock_seconds' => (int) env('PRINTIFY_SYNC_LOCK_SECONDS', 900),
+    ],
+
 ];

@@ -67,15 +67,11 @@ class OrderController extends Controller
         $order = Order::findOrFail($id);
 
         $request->validate([
-            'printify_order_id'   => 'nullable|string',
-            'printify_created_at' => 'nullable|date',
             'seller_id'           => 'nullable|exists:users,id',
             'buyer_id'            => 'nullable|exists:users,id',
         ]);
 
         $order->update($request->only([
-            'printify_order_id',
-            'printify_created_at',
             'seller_id',
             'buyer_id',
         ]));

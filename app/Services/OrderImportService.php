@@ -3,104 +3,84 @@
 namespace App\Services;
 
 use App\Models\Order;
+use App\Models\OrderImportBatch;
+use App\Models\OrderImportBatchItem;
+use App\Models\OrderLineItem;
 use App\Models\User;
 use Carbon\Carbon;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
+use League\Csv\Reader;
+use RuntimeException;
 
 class OrderImportService
 {
-    const CHUNK_SIZE = 100;
-
     public function importFromArray(array $orders): array
     {
-        $result = [
-            'total'   => count($orders),
-            'success' => 0,
-            'failed'  => 0,
-            'errors'  => [],
-        ];
+        $result = ['total' => count($orders), 'success' => 0, 'failed' => 0, 'errors' => []];
+        $codes = collect($orders)->flatMap(fn (array $item) => [$item['buyer_code'] ?? null, $item['seller_code'] ?? null])->filter()->unique();
+        $users = User::whereIn('employee_code', $codes)->pluck('id', 'employee_code');
 
-        foreach (array_chunk($orders, self::CHUNK_SIZE, true) as $chunk) {
-            $this->processChunk($chunk, $result);
+        foreach ($orders as $index => $item) {
+            $number = trim((string) $item['ebay_order_id']);
+            if ($number === '' || Order::where('ebay_order_id', $number)->exists()) { $result['failed']++; $result['errors'][] = 'Mục #'.($index + 2).' không hợp lệ hoặc đã tồn tại'; continue; }
+            Order::create(['ebay_order_id' => $number, 'ebay_order_number' => $number, 'buyer_id' => $users[$item['buyer_code'] ?? ''] ?? null, 'seller_id' => $users[$item['seller_code'] ?? ''] ?? null, 'ebay_created_at' => $this->parseDate($item['ebay_created_at'])]);
+            $result['success']++;
         }
-
         return $result;
     }
 
-    private function processChunk(array $chunk, array &$result): void
+    public function importFromCsv(UploadedFile $file, ?int $userId): array
     {
-        // Pre-load seller/buyer maps from employee_codes in this chunk
-        $buyerCodes  = array_filter(array_column($chunk, 'buyer_code'));
-        $sellerCodes = array_filter(array_column($chunk, 'seller_code'));
-        $allCodes    = array_unique(array_merge($buyerCodes, $sellerCodes));
-
-        $userMap = User::whereIn('employee_code', $allCodes)
-            ->pluck('id', 'employee_code');
-
-        $toInsert = [];
-
-        foreach ($chunk as $index => $item) {
-            $rowNumber = $index + 2; // offset for display (row 1 = header)
-
-            // Kiểm tra trùng ebay_order_id
-            if (Order::where('ebay_order_id', $item['ebay_order_id'])->exists()) {
-                $result['failed']++;
-                $result['errors'][] = "Mục #{$rowNumber}: Mã eBay '{$item['ebay_order_id']}' đã tồn tại";
-                continue;
-            }
-
-            $buyerId = null;
-            if (!empty($item['buyer_code'])) {
-                if (isset($userMap[$item['buyer_code']])) {
-                    $buyerId = $userMap[$item['buyer_code']];
-                } else {
-                    $result['errors'][] = "Mục #{$rowNumber} [{$item['ebay_order_id']}]: Mã buyer '{$item['buyer_code']}' không tồn tại trong hệ thống";
-                }
-            }
-
-            $sellerId = null;
-            if (!empty($item['seller_code'])) {
-                if (isset($userMap[$item['seller_code']])) {
-                    $sellerId = $userMap[$item['seller_code']];
-                } else {
-                    $result['errors'][] = "Mục #{$rowNumber} [{$item['ebay_order_id']}]: Mã seller '{$item['seller_code']}' không tồn tại trong hệ thống";
-                }
-            }
-
-            $toInsert[] = [
-                'ebay_order_id'       => $item['ebay_order_id'],
-                'buyer_id'            => $buyerId,
-                'seller_id'           => $sellerId,
-                'ebay_created_at'     => $this->parseDate($item['ebay_created_at']),
-                'printify_created_at' => isset($item['printify_created_at']) ? $this->parseDate($item['printify_created_at']) : null,
-                'printify_order_id'   => $item['printify_order_id'] ?? null,
-                'created_at'          => now(),
-                'updated_at'          => now(),
-            ];
-        }
-
-        if (!empty($toInsert)) {
-            Order::insert($toInsert);
-            $result['success'] += count($toInsert);
+        $batch = OrderImportBatch::create(['created_by' => $userId, 'source_filename' => basename($file->getClientOriginalName()), 'status' => 'processing']);
+        try {
+            $records = iterator_to_array(Reader::createFromPath($file->getRealPath())->getRecords());
+            $headerIndex = collect($records)->search(fn (array $row) => in_array('Order Number', $row, true));
+            if ($headerIndex === false) throw new RuntimeException('CSV thiếu hàng tiêu đề Order Number.');
+            $headers = array_map('trim', $records[$headerIndex]);
+            foreach (['Order Number', 'Sale Date', 'Item Number', 'Quantity', 'Sold For', 'Shipping And Handling', 'Total Price', 'Ship To Name', 'Ship To Address 1', 'Ship To City', 'Ship To Zip', 'Ship To Country'] as $required) if (!in_array($required, $headers, true)) throw new RuntimeException("CSV thiếu cột {$required}.");
+            $rows = collect(array_slice($records, $headerIndex + 1))->values()->map(function (array $row, int $index) use ($headers, $headerIndex): array { if (count($row) > count($headers)) throw new RuntimeException('CSV row has more columns than its header.'); return array_combine($headers, array_pad($row, count($headers), null)) + ['_row' => $headerIndex + $index + 2]; })->filter(fn (array $row) => trim((string) $row['Order Number']) !== '');
+            foreach ($rows as $row) $this->validateCsvRow($row);
+            $summary = ['batch_id' => $batch->id, 'rows' => $rows->count(), 'orders' => 0, 'created' => 0, 'updated' => 0, 'failed' => 0, 'errors' => []];
+            foreach ($rows->groupBy(fn (array $row) => trim((string) $row['Order Number'])) as $number => $orderRows) $this->persistCsvOrder($batch, $number, $orderRows->all(), $summary);
+            $batch->update(['status' => 'completed', 'row_count' => $summary['rows'], 'order_count' => $summary['orders'], 'created_count' => $summary['created'], 'updated_count' => $summary['updated'], 'failed_count' => 0]);
+            return $summary;
+        } catch (\Throwable $exception) {
+            $batch->update(['status' => 'failed']);
+            throw $exception;
         }
     }
 
-    /**
-     * Parse flexible date formats:
-     * - d/m/Y   → 1/3/2026 or 01/03/2026
-     * - Standard → 2026-03-01, 2026-03-01 08:30:00, ISO 8601
-     */
+    private function persistCsvOrder(OrderImportBatch $batch, string $number, array $rows, array &$summary): void
+    {
+        DB::transaction(function () use ($batch, $number, $rows, &$summary): void {
+                $first = $rows[0]; $created = !Order::where('ebay_order_number', $number)->exists();
+                Order::upsert([['ebay_order_id' => $number, 'ebay_order_number' => $number, 'ebay_created_at' => $this->parseDate($first['Sale Date'] ?? null) ?? now(), 'created_at' => now(), 'updated_at' => now()]], ['ebay_order_number'], ['updated_at']);
+                $order = Order::where('ebay_order_number', $number)->firstOrFail();
+                $before = $created ? [] : $order->only(['buyer_id', 'seller_id', 'ebay_created_at']);
+                $order->fill(['ebay_order_id' => $order->ebay_order_id ?: $number])->save();
+                $order->fulfillmentAddress()->updateOrCreate([], $this->address($first));
+                foreach (collect($rows)->groupBy(fn (array $row) => $this->lineItemKey($row)) as $lineRows) {
+                    $this->upsertLineItem($order->id, $lineRows->first(), $lineRows->sum(fn (array $row) => (int) $row['Quantity']));
+                }
+                OrderImportBatchItem::create(['order_import_batch_id' => $batch->id, 'order_id' => $order->id, 'ebay_order_number' => $number, 'source_row' => $first['_row'], 'outcome' => $created ? 'created' : 'updated', 'was_created' => $created, 'before_values' => $before]);
+                $summary['orders']++; $summary[$created ? 'created' : 'updated']++;
+        });
+    }
+
+    private function address(array $row): array { $name = preg_split('/\s+/', trim((string) $row['Ship To Name']), 2); return ['first_name' => $name[0] ?: 'Customer', 'last_name' => $name[1] ?? null, 'phone' => $row['Ship To Phone'] ?? null, 'address_line1' => trim((string) $row['Ship To Address 1']), 'address_line2' => $row['Ship To Address 2'] ?? null, 'city' => trim((string) $row['Ship To City']), 'region' => $row['Ship To State'] ?? null, 'postal_code' => trim((string) $row['Ship To Zip']), 'country_code' => strtoupper(trim((string) $row['Ship To Country']))]; }
+    private function validateCsvRow(array $row): void { foreach (['Order Number','Sale Date','Item Number','Quantity','Ship To Name','Ship To Address 1','Ship To City','Ship To Zip','Ship To Country'] as $field) if (trim((string) ($row[$field] ?? '')) === '') throw new RuntimeException("CSV row {$row['_row']} is missing {$field}."); if (!Carbon::hasFormat(trim((string) $row['Sale Date']), 'M-d-y')) throw new RuntimeException("CSV row {$row['_row']} has an invalid Sale Date."); if (!ctype_digit(trim((string) $row['Quantity'])) || (int) $row['Quantity'] < 1) throw new RuntimeException("CSV row {$row['_row']} has an invalid quantity."); foreach (['Sold For','Total Price','Shipping And Handling'] as $field) if (!preg_match('/^\$?\s*\d+(?:,\d{3})*(?:\.\d{2})?$/', trim((string) $row[$field]))) throw new RuntimeException("CSV row {$row['_row']} has an invalid {$field}."); }
+    private function lineItemKey(array $row): string { $transaction = trim((string) ($row['Transaction ID'] ?? '')); return $transaction === '' ? 'fallback:'.$this->fallbackIdentity($row) : 'transaction:'.$transaction; }
+    private function fallbackIdentity(array $row): string { return hash('sha256', implode('|', [trim((string) ($row['Item Number'] ?? '')), trim((string) ($row['Custom Label'] ?? '')), trim((string) ($row['Variation Details'] ?? '')), $this->money($row['Sold For'] ?? null), 'USD'])); }
+    private function upsertLineItem(int $orderId, array $row, int $quantity): void { $transaction = trim((string) ($row['Transaction ID'] ?? '')); $price = $this->money($row['Sold For'] ?? null); $fallback = $transaction === '' ? $this->fallbackIdentity($row) : null; $identity = $transaction === '' ? ['fallback_identity' => $fallback] : ['transaction_id' => $transaction]; $item = OrderLineItem::firstOrNew(['order_id' => $orderId] + $identity); $item->fill(['transaction_id' => $transaction ?: null, 'fallback_identity' => $fallback, 'item_number' => $row['Item Number'] ?? null, 'title' => $row['Item Title'] ?? null, 'custom_label' => $row['Custom Label'] ?? null, 'variation' => $row['Variation Details'] ?? null, 'quantity' => $quantity, 'unit_price' => $price, 'currency' => 'USD'])->save(); }
+    private function money(?string $value): ?float { $value = trim((string) $value); return $value === '' ? null : (float) str_replace(['$', ','], '', $value); }
     private function parseDate(?string $date): ?string
     {
-        if (empty($date)) {
-            return null;
+        if (!$date) return null;
+        $value = trim($date);
+        foreach (['M-d-y', 'd/m/Y', 'Y-m-d H:i:s', DATE_ATOM, 'Y-m-d'] as $format) {
+            try { return Carbon::createFromFormat($format, $value)->toDateTimeString(); } catch (\Throwable) { continue; }
         }
-
-        // Detect d/m/Y or d/m/Y H:i:s
-        if (preg_match('#^(\d{1,2})/(\d{1,2})/(\d{4})(.*)$#', $date, $m)) {
-            $normalized = sprintf('%04d-%02d-%02d%s', $m[3], $m[2], $m[1], $m[4]);
-            return Carbon::parse($normalized)->toDateTimeString();
-        }
-
-        return Carbon::parse($date)->toDateTimeString();
+        return Carbon::parse($value)->toDateTimeString();
     }
 }

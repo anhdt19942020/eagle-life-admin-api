@@ -1,0 +1,5 @@
+<?php
+namespace App\Http\Resources;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+class PrintifyShopResource extends JsonResource { public function toArray(Request $request): array { return ['id'=>$this->id,'printify_shop_id'=>$this->printify_shop_id,'title'=>$this->title,'is_active'=>$this->is_active,'orders_sync_state'=>$this->orders_sync_state,'orders_sync_completed_at'=>$this->orders_sync_completed_at,'manual_approval_confirmed_at'=>$this->manual_approval_confirmed_at,'synced_at'=>$this->synced_at,'ready_for_creation'=>$this->isReadyForCreation()]; } }

@@ -24,6 +24,8 @@ class RolePermissionSeeder extends Seeder
 
         // 1. Tạo Quyền (tiếng Việt)
         $permissions = [
+            'orders.import', 'printify.catalog.view', 'printify.sync',
+            'printify.shop-readiness.confirm', 'printify.order.create', 'printify.reconcile',
             // Nhân viên
             'xem nhân viên', 'tạo nhân viên', 'sửa nhân viên', 'xóa nhân viên',
             // Vai trò
@@ -48,6 +50,8 @@ class RolePermissionSeeder extends Seeder
 
         // Manager: quản lý nhân viên + đơn hàng (không xóa nhân viên, không sửa vai trò)
         $roleManager->syncPermissions([
+            'orders.import', 'printify.catalog.view', 'printify.sync',
+            'printify.shop-readiness.confirm', 'printify.order.create', 'printify.reconcile',
             'xem nhân viên', 'tạo nhân viên', 'sửa nhân viên',
             'xem đơn hàng', 'tạo đơn hàng', 'sửa đơn hàng', 'xóa đơn hàng',
             'nhập đơn hàng', 'xuất đơn hàng',

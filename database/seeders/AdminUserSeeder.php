@@ -14,13 +14,22 @@ class AdminUserSeeder extends Seeder
      */
     public function run(): void
     {
+        if (app()->environment('production')) {
+            throw new \RuntimeException('AdminUserSeeder is disabled in production.');
+        }
+
+        $password = env('ADMIN_SEED_PASSWORD');
+        if (!$password) {
+            throw new \RuntimeException('Set ADMIN_SEED_PASSWORD explicitly before running AdminUserSeeder.');
+        }
+
         $admin = User::firstOrCreate(
             ['email' => 'admin@eaglelife.com'],
             [
                 'employee_code' => 'ADMIN001',
                 'username' => 'admin',
                 'name' => 'System Admin',
-                'password' => Hash::make('12345678'),
+                'password' => Hash::make($password),
                 'phone' => '0987654321',
                 'status' => true,
                 'email_verified_at' => now(),
@@ -35,7 +44,7 @@ class AdminUserSeeder extends Seeder
                 'employee_code'     => 'ADMIN002',
                 'username'          => 'tronganh',
                 'name'              => 'Trọng Anh',
-                'password'          => Hash::make('123456'),
+                'password'          => Hash::make($password),
                 'status'            => true,
                 'email_verified_at' => now(),
             ]
