@@ -38,11 +38,10 @@ class PrintifyShop extends Model
 
     public function isReadyForCreation(): bool
     {
+        // Per-shop gate: other shops' sync/approval state must not block this shop.
         return $this->is_active
             && $this->manual_approval_confirmed_at !== null
-            && !self::where('is_active', true)
-                ->where('orders_sync_state', '!=', 'complete')
-                ->exists()
-            && !PrintifyOrder::where('has_conflict', true)->exists();
+            && $this->orders_sync_state === 'complete'
+            && ! $this->orders()->where('has_conflict', true)->exists();
     }
 }

@@ -84,14 +84,13 @@ class PrintifySyncTest extends TestCase
         }
     }
 
-    public function test_ready_shop_waits_for_every_active_shop_in_the_account(): void
+    public function test_ready_shop_does_not_wait_on_other_shops_sync_state(): void
     {
         $readyCandidate = PrintifyShop::create(['printify_shop_id' => 101, 'title' => 'First', 'orders_sync_state' => 'complete', 'manual_approval_confirmed_at' => now()]);
         PrintifyShop::create(['printify_shop_id' => 102, 'title' => 'Second', 'orders_sync_state' => 'pending']);
 
-        $this->assertFalse($readyCandidate->fresh()->isReadyForCreation());
-        PrintifyShop::where('printify_shop_id', 102)->update(['orders_sync_state' => 'complete']);
         $this->assertTrue($readyCandidate->fresh()->isReadyForCreation());
+        $this->assertFalse(PrintifyShop::where('printify_shop_id', 102)->first()->isReadyForCreation());
     }
 
     public function test_account_lock_prevents_shop_sync_overlapping_order_sync(): void
