@@ -262,6 +262,8 @@ _(Lưu ý: 1 = Active, 0 = Banned)_
 
 - **Đường dẫn**: `GET /orders/{id}`
 
+Eager-load: `buyer`, `seller`, `fulfillmentAddress`, `lineItems`. Response kèm `ebay_export_rows`, `ebay_buyer_*`, và nested address/line items từ import CSV.
+
 **Response (200 OK):**
 
 ```json
@@ -272,6 +274,16 @@ _(Lưu ý: 1 = Active, 0 = Banned)_
         "id": 1,
         "ebay_order_id": "13-14975-00010",
         "ebay_order_number": "13-14975-00010",
+        "ebay_export_rows": [
+            {
+                "Order Number": "13-14975-00010",
+                "Buyer Email": "buyer@members.ebay.com",
+                "Ship To Country": "US"
+            }
+        ],
+        "ebay_buyer_username": "harharrlind",
+        "ebay_buyer_name": "Lindsey Harris",
+        "ebay_buyer_email": "buyer@members.ebay.com",
         "printify_order_id": null,
         "ebay_created_at": "2026-08-02T12:00:00.000000Z",
         "buyer": null,
@@ -280,6 +292,29 @@ _(Lưu ý: 1 = Active, 0 = Banned)_
             "name": "Tran Seller",
             "employee_code": "NV0001"
         },
+        "fulfillment_address": {
+            "first_name": "Lindsey",
+            "last_name": "Harris",
+            "email": "buyer@members.ebay.com",
+            "phone": "+1 479-692-3507",
+            "address_line1": "4168 SR 326",
+            "city": "Russellville",
+            "region": "AR",
+            "postal_code": "72802-1427",
+            "country_code": "US",
+            "country": "US"
+        },
+        "line_items": [
+            {
+                "item_number": "123",
+                "title": "Shirt",
+                "quantity": 1,
+                "unit_price": "10.00",
+                "ebay_raw": {
+                    "Item Title": "Shirt"
+                }
+            }
+        ],
         "created_at": "2026-08-04T00:00:00.000000Z",
         "updated_at": "2026-08-04T00:00:00.000000Z"
     }

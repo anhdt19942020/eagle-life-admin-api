@@ -57,6 +57,8 @@ class OrderController extends Controller
         $order = Order::with([
             'buyer:id,name,employee_code',
             'seller:id,name,employee_code',
+            'fulfillmentAddress',
+            'lineItems',
         ])->findOrFail($id);
 
         return $this->success($order, 'Lấy chi tiết đơn hàng thành công');
