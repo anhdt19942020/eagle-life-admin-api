@@ -15,6 +15,31 @@ use RuntimeException;
 
 class OrderImportService
 {
+    public const REQUIRED_CSV_HEADERS = [
+        'Order Number',
+        'Sale Date',
+        'Item Number',
+        'Quantity',
+        'Sold For',
+        'Shipping And Handling',
+        'Total Price',
+        'Ship To Name',
+        'Ship To Address 1',
+        'Ship To City',
+        'Ship To Zip',
+        'Ship To Country',
+    ];
+
+    public const OPTIONAL_CSV_HEADERS = [
+        'Transaction ID',
+        'Item Title',
+        'Custom Label',
+        'Variation Details',
+        'Ship To Phone',
+        'Ship To Address 2',
+        'Ship To State',
+    ];
+
     public function importFromArray(array $orders): array
     {
         $result = ['total' => count($orders), 'success' => 0, 'failed' => 0, 'errors' => []];
@@ -23,27 +48,85 @@ class OrderImportService
 
         foreach ($orders as $index => $item) {
             $number = trim((string) $item['ebay_order_id']);
-            if ($number === '' || Order::where('ebay_order_id', $number)->exists()) { $result['failed']++; $result['errors'][] = 'Mục #'.($index + 2).' không hợp lệ hoặc đã tồn tại'; continue; }
-            Order::create(['ebay_order_id' => $number, 'ebay_order_number' => $number, 'buyer_id' => $users[$item['buyer_code'] ?? ''] ?? null, 'seller_id' => $users[$item['seller_code'] ?? ''] ?? null, 'ebay_created_at' => $this->parseDate($item['ebay_created_at'])]);
+            if ($number === '' || Order::where('ebay_order_id', $number)->exists()) {
+                $result['failed']++;
+                $result['errors'][] = 'Mục #'.($index + 2).' không hợp lệ hoặc đã tồn tại';
+                continue;
+            }
+            Order::create([
+                'ebay_order_id' => $number,
+                'ebay_order_number' => $number,
+                'buyer_id' => $users[$item['buyer_code'] ?? ''] ?? null,
+                'seller_id' => $users[$item['seller_code'] ?? ''] ?? null,
+                'ebay_created_at' => $this->parseDate($item['ebay_created_at']),
+            ]);
             $result['success']++;
         }
+
         return $result;
     }
 
     public function importFromCsv(UploadedFile $file, ?int $userId): array
     {
-        $batch = OrderImportBatch::create(['created_by' => $userId, 'source_filename' => basename($file->getClientOriginalName()), 'status' => 'processing']);
+        $batch = OrderImportBatch::create([
+            'created_by' => $userId,
+            'source_filename' => basename($file->getClientOriginalName()),
+            'status' => 'processing',
+        ]);
+
         try {
             $records = iterator_to_array(Reader::createFromPath($file->getRealPath())->getRecords());
             $headerIndex = collect($records)->search(fn (array $row) => in_array('Order Number', $row, true));
-            if ($headerIndex === false) throw new RuntimeException('CSV thiếu hàng tiêu đề Order Number.');
+            if ($headerIndex === false) {
+                throw new RuntimeException('CSV thiếu hàng tiêu đề Order Number.');
+            }
+
             $headers = array_map('trim', $records[$headerIndex]);
-            foreach (['Order Number', 'Sale Date', 'Item Number', 'Quantity', 'Sold For', 'Shipping And Handling', 'Total Price', 'Ship To Name', 'Ship To Address 1', 'Ship To City', 'Ship To Zip', 'Ship To Country'] as $required) if (!in_array($required, $headers, true)) throw new RuntimeException("CSV thiếu cột {$required}.");
-            $rows = collect(array_slice($records, $headerIndex + 1))->values()->map(function (array $row, int $index) use ($headers, $headerIndex): array { if (count($row) > count($headers)) throw new RuntimeException('CSV row has more columns than its header.'); return array_combine($headers, array_pad($row, count($headers), null)) + ['_row' => $headerIndex + $index + 2]; })->filter(fn (array $row) => trim((string) $row['Order Number']) !== '');
-            foreach ($rows as $row) $this->validateCsvRow($row);
-            $summary = ['batch_id' => $batch->id, 'rows' => $rows->count(), 'orders' => 0, 'created' => 0, 'updated' => 0, 'failed' => 0, 'errors' => []];
-            foreach ($rows->groupBy(fn (array $row) => trim((string) $row['Order Number'])) as $number => $orderRows) $this->persistCsvOrder($batch, $number, $orderRows->all(), $summary);
-            $batch->update(['status' => 'completed', 'row_count' => $summary['rows'], 'order_count' => $summary['orders'], 'created_count' => $summary['created'], 'updated_count' => $summary['updated'], 'failed_count' => 0]);
+            foreach (self::REQUIRED_CSV_HEADERS as $required) {
+                if (! in_array($required, $headers, true)) {
+                    throw new RuntimeException("CSV thiếu cột {$required}.");
+                }
+            }
+
+            $rows = collect(array_slice($records, $headerIndex + 1))->values()->map(function (array $row, int $index) use ($headers, $headerIndex): array {
+                if (count($row) > count($headers)) {
+                    $row = array_slice($row, 0, count($headers));
+                }
+
+                return array_combine($headers, array_pad($row, count($headers), null)) + ['_row' => $headerIndex + $index + 2];
+            })->filter(fn (array $row) => $this->isImportableCsvRow($row))->values();
+
+            if ($rows->isEmpty()) {
+                throw new RuntimeException('CSV không có dòng đơn hàng hợp lệ.');
+            }
+
+            foreach ($rows as $row) {
+                $this->validateCsvRow($row);
+            }
+
+            $summary = [
+                'batch_id' => $batch->id,
+                'rows' => $rows->count(),
+                'orders' => 0,
+                'created' => 0,
+                'updated' => 0,
+                'failed' => 0,
+                'errors' => [],
+            ];
+
+            foreach ($rows->groupBy(fn (array $row) => trim((string) $row['Order Number'])) as $number => $orderRows) {
+                $this->persistCsvOrder($batch, $number, $orderRows->all(), $summary);
+            }
+
+            $batch->update([
+                'status' => 'completed',
+                'row_count' => $summary['rows'],
+                'order_count' => $summary['orders'],
+                'created_count' => $summary['created'],
+                'updated_count' => $summary['updated'],
+                'failed_count' => 0,
+            ]);
+
             return $summary;
         } catch (\Throwable $exception) {
             $batch->update(['status' => 'failed']);
@@ -66,6 +149,23 @@ class OrderImportService
                 OrderImportBatchItem::create(['order_import_batch_id' => $batch->id, 'order_id' => $order->id, 'ebay_order_number' => $number, 'source_row' => $first['_row'], 'outcome' => $created ? 'created' : 'updated', 'was_created' => $created, 'before_values' => $before]);
                 $summary['orders']++; $summary[$created ? 'created' : 'updated']++;
         });
+    }
+
+    private function isImportableCsvRow(array $row): bool
+    {
+        $orderNumber = trim((string) ($row['Order Number'] ?? ''));
+        // eBay sold export: 13-14975-00010 — skip footer like "record(s) downloaded"
+        if (! preg_match('/^\d{2}-\d{5}-\d{5}$/', $orderNumber)) {
+            return false;
+        }
+
+        foreach (['Sale Date', 'Item Number', 'Quantity', 'Ship To Name', 'Ship To Address 1', 'Ship To City', 'Ship To Zip', 'Ship To Country'] as $field) {
+            if (trim((string) ($row[$field] ?? '')) === '') {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function address(array $row): array { $name = preg_split('/\s+/', trim((string) $row['Ship To Name']), 2); return ['first_name' => $name[0] ?: 'Customer', 'last_name' => $name[1] ?? null, 'phone' => $row['Ship To Phone'] ?? null, 'address_line1' => trim((string) $row['Ship To Address 1']), 'address_line2' => $row['Ship To Address 2'] ?? null, 'city' => trim((string) $row['Ship To City']), 'region' => $row['Ship To State'] ?? null, 'postal_code' => trim((string) $row['Ship To Zip']), 'country_code' => strtoupper(trim((string) $row['Ship To Country']))]; }

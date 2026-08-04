@@ -26,9 +26,12 @@ Route::middleware('auth:sanctum')->group(function () {
     // Orders - Phase 5
     Route::apiResource('orders', OrderController::class)->except(['store']);
 
-    // Import JSON - Phase 6
+    // Import eBay - Phase 6
+    Route::get('/orders/import/template', [OrderImportController::class, 'template']);
     Route::post('/orders/import', [OrderImportController::class, 'import'])->middleware('permission:orders.import');
     Route::post('/orders/import-csv', [OrderImportController::class, 'importCsv'])->middleware('permission:orders.import');
+
+    // Printify catalog - Phase 7 (inbound sync / create-order: later)
     Route::get('/printify/shops', [PrintifyShopController::class, 'index'])->middleware('permission:printify.catalog.view');
     Route::post('/printify/shops/{shop}/confirm-manual-approval', [PrintifyShopController::class, 'confirmManualApproval'])->middleware('permission:printify.shop-readiness.confirm');
     Route::get('/printify/products', [PrintifyProductController::class, 'index'])->middleware('permission:printify.catalog.view');

@@ -10,15 +10,20 @@ class Order extends Model
 {
     protected $fillable = [
         'ebay_order_id',
+        'ebay_order_number',
+        'ebay_export_rows',
+        'ebay_buyer_username',
+        'ebay_buyer_name',
+        'ebay_buyer_email',
         'buyer_id',
         'seller_id',
         'ebay_created_at',
-        'ebay_order_number',
     ];
 
     protected $casts = [
         'ebay_created_at' => 'datetime',
         'printify_created_at' => 'datetime',
+        'ebay_export_rows' => 'array',
     ];
 
     public function buyer()

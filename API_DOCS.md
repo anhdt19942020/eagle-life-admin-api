@@ -1,6 +1,8 @@
-# 🦅 Eagle Life Admin - API Documentation (Phase 3)
+# 🦅 Eagle Life Admin - API Documentation
 
-Tài liệu này bao gồm các thông tin cho Frontend Engineer để tích hợp luồng Xác thực (Authentication) và Quản lý Phân quyền (Roles) vào giao diện.
+Tài liệu cho Frontend Engineer: Auth/Roles (Phase 2–3), Users (Phase 4), Orders (Phase 5), Import eBay (Phase 6), Printify sync foundation (Phase 7).
+
+> **Envelope chuẩn:** hầu hết endpoint protected trả về `{ "status": "success"|"error", "message": "...", "data": ... }`.
 
 ---
 
@@ -235,24 +237,26 @@ _(Lưu ý: 1 = Active, 0 = Banned)_
 
 ## 4. Quản lý Đơn hàng (Orders) - Phase 5
 
-> Tất cả endpoints đều yêu cầu `Authorization: Bearer <token>`.
+> Tất cả endpoints đều yêu cầu `Authorization: Bearer <token>`.  
+> Hiện tại routes orders CRUD chỉ cần đăng nhập (chưa gắn Spatie permission trên route). Domain là **đơn eBay**, không phải CRM `customer_*` / `status`.
 
 ### 4.1. Danh sách Đơn hàng
 
 - **Đường dẫn**: `GET /orders`
 - **Query Params (tùy chọn)**:
 
-| Param       | Ý nghĩa                            | Ví dụ                  |
-| ----------- | ---------------------------------- | ---------------------- |
-| `search`    | Tìm theo mã, tên, SĐT, email khách | `search=Nguyễn`        |
-| `status`    | Lọc theo trạng thái                | `status=pending`       |
-| `sale_id`   | Lọc theo Sale phụ trách            | `sale_id=3`            |
-| `from_date` | Từ ngày (yyyy-mm-dd)               | `from_date=2026-01-01` |
-| `to_date`   | Đến ngày                           | `to_date=2026-12-31`   |
-| `page`      | Trang                              | `page=1`               |
-| `per_page`  | Số dòng/trang                      | `per_page=20`          |
+| Param         | Ý nghĩa                                         | Ví dụ                    |
+| ------------- | ----------------------------------------------- | ------------------------ |
+| `search`      | Tìm theo `ebay_order_id` hoặc `printify_order_id` | `search=13-14975`      |
+| `seller_id`   | Lọc seller                                      | `seller_id=3`            |
+| `buyer_id`    | Lọc buyer                                       | `buyer_id=5`             |
+| `from_date`   | Từ ngày `ebay_created_at` (yyyy-mm-dd)          | `from_date=2026-01-01`   |
+| `to_date`     | Đến ngày                                        | `to_date=2026-12-31`     |
+| `no_printify` | `1`/`true` → chỉ đơn chưa có `printify_order_id` | `no_printify=1`         |
+| `page`        | Trang                                           | `page=1`                 |
+| `per_page`    | Số dòng/trang (mặc định 15)                     | `per_page=20`            |
 
-**Status hợp lệ**: `pending` | `processing` | `completed` | `canceled`
+**Response:** envelope `{ status, message, data }` với `data` là Laravel paginator (`data`, `links`, `meta`). Mỗi item gồm `ebay_order_id`, `ebay_order_number`, `printify_order_id`, `ebay_created_at`, nested `buyer` / `seller` (`id`, `name`, `employee_code`).
 
 ### 4.2. Chi tiết Đơn hàng
 
@@ -262,37 +266,35 @@ _(Lưu ý: 1 = Active, 0 = Banned)_
 
 ```json
 {
-    "success": true,
+    "status": "success",
     "message": "Lấy chi tiết đơn hàng thành công",
     "data": {
         "id": 1,
-        "order_code": "DH000001",
-        "customer_name": "Nguyễn Văn A",
-        "customer_phone": "0909123456",
-        "customer_email": "nva@email.com",
-        "total_amount": "1500000.00",
-        "status": "pending",
-        "notes": null,
-        "sale": {
+        "ebay_order_id": "13-14975-00010",
+        "ebay_order_number": "13-14975-00010",
+        "printify_order_id": null,
+        "ebay_created_at": "2026-08-02T12:00:00.000000Z",
+        "buyer": null,
+        "seller": {
             "id": 3,
-            "name": "Trần Sale",
+            "name": "Tran Seller",
             "employee_code": "NV0001"
         },
-        "created_at": "2026-04-04T00:00:00.000000Z"
+        "created_at": "2026-08-04T00:00:00.000000Z",
+        "updated_at": "2026-08-04T00:00:00.000000Z"
     }
 }
 ```
 
 ### 4.3. Cập nhật Đơn hàng
 
-- **Đường dẫn**: `PUT /orders/{id}`
-- **Body JSON** (chỉ các field cần cập nhật):
+- **Đường dẫn**: `PUT /orders/{id}` / `PATCH /orders/{id}`
+- **Body JSON** (chỉ các field được chấp nhận):
 
 ```json
 {
-    "status": "processing",
-    "sale_id": 3,
-    "notes": "Đã liên hệ khách"
+    "seller_id": 3,
+    "buyer_id": 5
 }
 ```
 
@@ -302,46 +304,180 @@ _(Lưu ý: 1 = Active, 0 = Banned)_
 
 ---
 
-## 5. Import Đơn hàng CSV - Phase 6
+## 5. Import Đơn hàng eBay - Phase 6
 
-### 5.1. Import CSV
+> Yêu cầu `Authorization: Bearer <token>`.  
+> `POST /orders/import` và `POST /orders/import-csv` cần permission `orders.import`.  
+> **Ưu tiên hiện tại:** đưa đơn eBay vào hệ thống. Sync/lấy order từ Printify để bước sau.
+
+### 5.1. Import JSON (đơn giản)
 
 - **Đường dẫn**: `POST /orders/import`
-- **Content-Type**: `multipart/form-data`
-- **Form field**: `file` (file `.csv`, tối đa 10MB)
+- **Content-Type**: `application/json`
 
-**Cấu trúc CSV yêu cầu:**
+**Request Body:**
 
-| Cột              | Bắt buộc | Mô tả                            |
-| ---------------- | -------- | -------------------------------- |
-| `customer_name`  | ✅       | Tên khách hàng                   |
-| `customer_phone` | ❌       | Số điện thoại                    |
-| `customer_email` | ❌       | Email                            |
-| `total_amount`   | ❌       | Giá trị đơn hàng                 |
-| `status`         | ❌       | Trạng thái (mặc định: `pending`) |
-| `sale_code`      | ❌       | Mã nhân viên (vd: `NV0001`)      |
-| `notes`          | ❌       | Ghi chú                          |
+```json
+{
+    "orders": [
+        {
+            "ebay_order_id": "13-14975-00010",
+            "ebay_created_at": "2026-08-02 12:00:00",
+            "buyer_code": "NV0002",
+            "seller_code": "NV0001"
+        }
+    ]
+}
+```
+
+| Field             | Bắt buộc | Mô tả                                       |
+| ----------------- | -------- | ------------------------------------------- |
+| `ebay_order_id`   | ✅       | Mã đơn eBay (unique)                        |
+| `ebay_created_at` | ✅       | Ngày tạo trên eBay                          |
+| `buyer_code`      | ❌       | `employee_code` buyer (map sang `buyer_id`) |
+| `seller_code`     | ❌       | `employee_code` seller                      |
 
 **Response (200 OK):**
 
 ```json
 {
-    "success": true,
-    "message": "Import hoàn tất: 150/152 thành công",
+    "status": "success",
+    "message": "Import hoàn tất: 1/1 thành công",
     "data": {
-        "total": 152,
-        "success": 150,
-        "failed": 2,
-        "errors": [
-            "Dòng 5: Thiếu tên khách hàng",
-            "Dòng 89: Thiếu tên khách hàng"
-        ]
+        "total": 1,
+        "success": 1,
+        "failed": 0,
+        "errors": []
     }
 }
 ```
 
-### 5.2. Tải File CSV Mẫu
+> Bản ghi trùng `ebay_order_id` sẽ bị bỏ qua và ghi vào `errors` (vẫn HTTP 200).
+
+### 5.2. Import CSV eBay (Sold Orders)
+
+- **Đường dẫn**: `POST /orders/import-csv`
+- **Content-Type**: `multipart/form-data`
+- **Form field**: `file` (`.csv` / text, tối đa 10MB)
+- **Permission**: `orders.import`
+
+File export từ eBay; parser bỏ dòng rỗng trước header, group theo `Order Number`, tạo/cập nhật:
+
+- `orders` (+ `ebay_order_number`)
+- `order_line_items`
+- `order_fulfillment_addresses`
+- `order_import_batches` / `order_import_batch_items`
+
+**Cột bắt buộc** — cùng list trong `OrderImportService::REQUIRED_CSV_HEADERS`:
+
+| Cột                     | Mô tả                              |
+| ----------------------- | ---------------------------------- |
+| `Order Number`          | Khóa nhóm đơn                      |
+| `Sale Date`             | `M-d-y` (vd `Aug-02-26`)           |
+| `Item Number`           | SKU/item eBay                      |
+| `Quantity`              | Số nguyên ≥ 1                      |
+| `Sold For`              | Tiền, vd `$10.00`                  |
+| `Shipping And Handling` | Tiền                               |
+| `Total Price`           | Tiền                               |
+| `Ship To Name`          | Tên nhận hàng                      |
+| `Ship To Address 1`     | Địa chỉ                            |
+| `Ship To City`          | Thành phố                          |
+| `Ship To Zip`           | ZIP                                |
+| `Ship To Country`       | Country code                       |
+
+**Cột tùy chọn:** `Transaction ID`, `Item Title`, `Custom Label`, `Variation Details`, `Ship To Phone`, `Ship To Address 2`, `Ship To State`.
+
+**Response success (200):**
+
+```json
+{
+    "status": "success",
+    "message": "Import CSV hoàn tất",
+    "data": {
+        "batch_id": 1,
+        "rows": 2,
+        "orders": 1,
+        "created": 1,
+        "updated": 0,
+        "failed": 0,
+        "errors": []
+    }
+}
+```
+
+**Response validation failure (422):**
+
+```json
+{
+    "status": "error",
+    "message": "CSV thiếu cột Sale Date.",
+    "data": null
+}
+```
+
+> Validate toàn bộ file trước khi persist. Lỗi header/date/money → `422`, batch `failed`, không tạo order. Persist từng order trong transaction riêng (không phải một outer transaction cho cả file). Re-import cùng `Order Number` → `updated` (idempotent theo `Transaction ID` hoặc fallback identity).
+
+### 5.3. Tải CSV mẫu
 
 - **Đường dẫn**: `GET /orders/import/template`
-- **Response**: Tự động download file `order_import_template.csv`
-- _Không cần Bearer Token_
+- **Auth**: Bearer token (đăng nhập); không cần `orders.import`
+- **Response**: file `ebay_order_import_template.csv` (`Content-Type: text/csv`) — header đủ cột bắt buộc + tùy chọn + 1 dòng ví dụ
+
+---
+
+## 6. Printify Catalog & Sync Foundation - Phase 7 (deferred / sau import)
+
+> **Trạng thái:** foundation (catalog + sync commands) đã có trên codebase.  
+> **Ưu tiên hiện tại:** hoàn thiện import eBay trước.  
+> **Để sau:** lấy/sync order từ Printify về, link `printify_orders.order_id`, outbound `printify.order.create`, reconcile.
+
+### 6.1. Permissions liên quan
+
+| Permission                        | Dùng cho                            | Đã có route? |
+| --------------------------------- | ----------------------------------- | ------------ |
+| `printify.catalog.view`           | List shops / products               | ✅           |
+| `printify.shop-readiness.confirm` | Confirm Manual approval trên shop   | ✅           |
+| `printify.sync`                   | Reserved (Artisan/schedule)         | ❌ HTTP      |
+| `printify.order.create`           | Tạo đơn Printify (sau)              | ❌           |
+| `printify.reconcile`              | Đối soát (sau)                      | ❌           |
+
+### 6.2. Env backend (không expose ra FE)
+
+| Key                          | Ví dụ / mặc định              |
+| ---------------------------- | ----------------------------- |
+| `PRINTIFY_TOKEN`             | Personal Access Token         |
+| `PRINTIFY_BASE_URL`          | `https://api.printify.com/v1` |
+| `PRINTIFY_TIMEOUT`           | `15`                          |
+| `PRINTIFY_RETRY_TIMES`       | `3`                           |
+| `PRINTIFY_RETRY_SLEEP_MS`    | `500`                         |
+| `PRINTIFY_SYNC_LOCK_SECONDS` | `900`                         |
+
+### 6.3. Danh sách Shop
+
+- **Đường dẫn**: `GET /printify/shops`
+- **Permission**: `printify.catalog.view`
+
+**Response:** `{ status, message, data }` với `data` là **paginator** (không phải mảng phẳng). Item gồm `id` (local), `printify_shop_id`, `title`, `is_active`, `orders_sync_state`, `orders_sync_completed_at`, `manual_approval_confirmed_at`, `synced_at`, `ready_for_creation`.
+
+### 6.4. Xác nhận Manual Approval
+
+- **Đường dẫn**: `POST /printify/shops/{shop}/confirm-manual-approval`
+- **Permission**: `printify.shop-readiness.confirm`
+- **Path param**: `shop` = local `printify_shops.id`
+
+### 6.5. Danh sách Product (theo shop)
+
+- **Đường dẫn**: `GET /printify/products?shop_id={localShopId}`
+- **Permission**: `printify.catalog.view`
+- Thiếu `shop_id` → `422`. `data` là paginator + `variants` khi load.
+
+### 6.6. Sync jobs (Ops — để sau khi ưu tiên import xong)
+
+| Artisan command | Mô tả |
+| --- | --- |
+| `php artisan printify:sync-shops` | Sync shops |
+| `php artisan printify:sync-products {--shop-id=} {--limit-pages=}` | Sync products |
+| `php artisan printify:sync-orders {--shop-id=} {--limit-pages=}` | Sync orders inbound |
+| `php artisan printify:sync-uploads {--limit-pages=}` | Sync uploads |
+
+`--shop-id` ở command = **remote** `printify_shop_id`.
