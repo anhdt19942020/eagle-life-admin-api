@@ -473,7 +473,7 @@ File export từ eBay; parser bỏ dòng rỗng trước header, group theo `Ord
 | `printify.catalog.view`           | List shops / products               | ✅           |
 | `printify.shop-readiness.confirm` | Confirm Manual approval trên shop   | ✅           |
 | `printify.sync`                   | Reserved (Artisan/schedule)         | ❌ HTTP      |
-| `printify.order.create`           | Tạo đơn Printify (sau)              | ❌           |
+| `printify.order.create`           | Preview/tạo đơn Printify            | ✅ preview   |
 | `printify.reconcile`              | Đối soát (sau)                      | ❌           |
 
 ### 6.2. Env backend (không expose ra FE)
@@ -506,7 +506,28 @@ File export từ eBay; parser bỏ dòng rỗng trước header, group theo `Ord
 - **Permission**: `printify.catalog.view`
 - Thiếu `shop_id` → `422`. `data` là paginator + `variants` khi load.
 
-### 6.6. Sync jobs (Ops — để sau khi ưu tiên import xong)
+### 6.6. Dry-run Printify order payload (scaffold)
+
+- **Đường dẫn**: `POST /orders/{order}/printify-preview`
+- **Permission**: `printify.order.create`
+- **Không gọi** Printify API — chỉ build payload.
+
+**Body:**
+
+```json
+{
+  "shop_id": 1,
+  "line_mappings": [
+    { "line_item_id": 10, "variant_id": 9991 }
+  ]
+}
+```
+
+`line_mappings` optional. Không có mapping thủ công → resolve theo `Custom Label` = `printify_product_variants.sku` trong shop. Ambiguous / missing SKU → `ready=false` + `errors`.
+
+**Response `data`:** `ready`, `errors`, `line_mappings[]`, `payload` (null nếu chưa ready). `payload` khớp shape create-order Printify (`external_id`, `line_items`, `address_to`, …).
+
+### 6.7. Sync jobs (Ops — để sau khi ưu tiên import xong)
 
 | Artisan command | Mô tả |
 | --- | --- |

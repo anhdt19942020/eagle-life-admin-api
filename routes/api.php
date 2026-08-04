@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\OrderImportController;
 use App\Http\Controllers\Api\PrintifyProductController;
 use App\Http\Controllers\Api\PrintifyShopController;
+use App\Http\Controllers\Api\PrintifyOrderController;
 
 Route::post('/login', [AuthController::class, 'login']);
 
@@ -35,4 +36,5 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/printify/shops', [PrintifyShopController::class, 'index'])->middleware('permission:printify.catalog.view');
     Route::post('/printify/shops/{shop}/confirm-manual-approval', [PrintifyShopController::class, 'confirmManualApproval'])->middleware('permission:printify.shop-readiness.confirm');
     Route::get('/printify/products', [PrintifyProductController::class, 'index'])->middleware('permission:printify.catalog.view');
+    Route::post('/orders/{order}/printify-preview', [PrintifyOrderController::class, 'preview'])->middleware('permission:printify.order.create');
 });
