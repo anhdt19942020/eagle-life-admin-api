@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "Wire raw CSV payload on import"
-status: pending
+status: done
 priority: P1
 effort: "30m"
 dependencies: []

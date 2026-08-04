@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Cover raw persist with import tests"
-status: pending
+status: done
 priority: P1
 effort: "30m"
 dependencies: [1]
