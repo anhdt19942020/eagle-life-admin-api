@@ -106,7 +106,7 @@ class PrintifySyncService
         $exhaustive = $limitPages === null;
 
         for ($page = 1; $limitPages === null || $page <= $limitPages; $page++) {
-            $response = $this->client->get($path, ['page' => $page, 'limit' => 100]);
+            $response = $this->client->get($path, ['page' => $page, 'limit' => 50]);
             if (!array_key_exists('data', $response) || !is_array($response['data'])) {
                 throw new RuntimeException('Printify pagination response is invalid.');
             }
@@ -114,7 +114,7 @@ class PrintifySyncService
             $data = $response['data'];
             $items = array_merge($items, $data);
             $lastPage = $response['last_page'] ?? $response['meta']['last_page'] ?? null;
-            if (($lastPage !== null && $page >= (int) $lastPage) || count($data) < 100) break;
+            if (($lastPage !== null && $page >= (int) $lastPage) || count($data) < 50) break;
             if ($limitPages !== null && $page === $limitPages) $exhaustive = false;
         }
 
