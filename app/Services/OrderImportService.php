@@ -141,7 +141,13 @@ class OrderImportService
                 Order::upsert([['ebay_order_id' => $number, 'ebay_order_number' => $number, 'ebay_created_at' => $this->parseDate($first['Sale Date'] ?? null) ?? now(), 'created_at' => now(), 'updated_at' => now()]], ['ebay_order_number'], ['updated_at']);
                 $order = Order::where('ebay_order_number', $number)->firstOrFail();
                 $before = $created ? [] : $order->only(['buyer_id', 'seller_id', 'ebay_created_at']);
-                $order->fill(['ebay_order_id' => $order->ebay_order_id ?: $number])->save();
+                $order->fill([
+                    'ebay_order_id' => $order->ebay_order_id ?: $number,
+                    'ebay_export_rows' => array_map(fn (array $row) => $this->sanitizeCsvPayload($row), $rows),
+                    'ebay_buyer_username' => $this->nullableTrim($first['Buyer Username'] ?? null),
+                    'ebay_buyer_name' => $this->nullableTrim($first['Buyer Name'] ?? null),
+                    'ebay_buyer_email' => $this->nullableTrim($first['Buyer Email'] ?? null),
+                ])->save();
                 $order->fulfillmentAddress()->updateOrCreate([], $this->address($first));
                 foreach (collect($rows)->groupBy(fn (array $row) => $this->lineItemKey($row)) as $lineRows) {
                     $this->upsertLineItem($order->id, $lineRows->first(), $lineRows->sum(fn (array $row) => (int) $row['Quantity']));
@@ -149,6 +155,20 @@ class OrderImportService
                 OrderImportBatchItem::create(['order_import_batch_id' => $batch->id, 'order_id' => $order->id, 'ebay_order_number' => $number, 'source_row' => $first['_row'], 'outcome' => $created ? 'created' : 'updated', 'was_created' => $created, 'before_values' => $before]);
                 $summary['orders']++; $summary[$created ? 'created' : 'updated']++;
         });
+    }
+
+    private function sanitizeCsvPayload(array $row): array
+    {
+        unset($row['_row']);
+
+        return $row;
+    }
+
+    private function nullableTrim(mixed $value): ?string
+    {
+        $trimmed = trim((string) $value);
+
+        return $trimmed === '' ? null : $trimmed;
     }
 
     private function isImportableCsvRow(array $row): bool
@@ -172,7 +192,7 @@ class OrderImportService
     private function validateCsvRow(array $row): void { foreach (['Order Number','Sale Date','Item Number','Quantity','Ship To Name','Ship To Address 1','Ship To City','Ship To Zip','Ship To Country'] as $field) if (trim((string) ($row[$field] ?? '')) === '') throw new RuntimeException("CSV row {$row['_row']} is missing {$field}."); if (!Carbon::hasFormat(trim((string) $row['Sale Date']), 'M-d-y')) throw new RuntimeException("CSV row {$row['_row']} has an invalid Sale Date."); if (!ctype_digit(trim((string) $row['Quantity'])) || (int) $row['Quantity'] < 1) throw new RuntimeException("CSV row {$row['_row']} has an invalid quantity."); foreach (['Sold For','Total Price','Shipping And Handling'] as $field) if (!preg_match('/^\$?\s*\d+(?:,\d{3})*(?:\.\d{2})?$/', trim((string) $row[$field]))) throw new RuntimeException("CSV row {$row['_row']} has an invalid {$field}."); }
     private function lineItemKey(array $row): string { $transaction = trim((string) ($row['Transaction ID'] ?? '')); return $transaction === '' ? 'fallback:'.$this->fallbackIdentity($row) : 'transaction:'.$transaction; }
     private function fallbackIdentity(array $row): string { return hash('sha256', implode('|', [trim((string) ($row['Item Number'] ?? '')), trim((string) ($row['Custom Label'] ?? '')), trim((string) ($row['Variation Details'] ?? '')), $this->money($row['Sold For'] ?? null), 'USD'])); }
-    private function upsertLineItem(int $orderId, array $row, int $quantity): void { $transaction = trim((string) ($row['Transaction ID'] ?? '')); $price = $this->money($row['Sold For'] ?? null); $fallback = $transaction === '' ? $this->fallbackIdentity($row) : null; $identity = $transaction === '' ? ['fallback_identity' => $fallback] : ['transaction_id' => $transaction]; $item = OrderLineItem::firstOrNew(['order_id' => $orderId] + $identity); $item->fill(['transaction_id' => $transaction ?: null, 'fallback_identity' => $fallback, 'item_number' => $row['Item Number'] ?? null, 'title' => $row['Item Title'] ?? null, 'custom_label' => $row['Custom Label'] ?? null, 'variation' => $row['Variation Details'] ?? null, 'quantity' => $quantity, 'unit_price' => $price, 'currency' => 'USD'])->save(); }
+    private function upsertLineItem(int $orderId, array $row, int $quantity): void { $transaction = trim((string) ($row['Transaction ID'] ?? '')); $price = $this->money($row['Sold For'] ?? null); $fallback = $transaction === '' ? $this->fallbackIdentity($row) : null; $identity = $transaction === '' ? ['fallback_identity' => $fallback] : ['transaction_id' => $transaction]; $item = OrderLineItem::firstOrNew(['order_id' => $orderId] + $identity); $item->fill(['transaction_id' => $transaction ?: null, 'fallback_identity' => $fallback, 'item_number' => $row['Item Number'] ?? null, 'title' => $row['Item Title'] ?? null, 'custom_label' => $row['Custom Label'] ?? null, 'variation' => $row['Variation Details'] ?? null, 'quantity' => $quantity, 'unit_price' => $price, 'currency' => 'USD', 'ebay_raw' => $this->sanitizeCsvPayload($row)])->save(); }
     private function money(?string $value): ?float { $value = trim((string) $value); return $value === '' ? null : (float) str_replace(['$', ','], '', $value); }
     private function parseDate(?string $date): ?string
     {

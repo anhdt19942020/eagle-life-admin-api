@@ -43,6 +43,7 @@ class EbayCsvImportTest extends TestCase
             app(OrderImportService::class)->importFromCsv($file, null);
             $this->fail('Expected missing CSV headers to fail the batch.');
         } catch (\RuntimeException) {
+            // Expected: missing headers must fail the batch; assert status below.
         }
         $this->assertDatabaseHas('order_import_batches', ['status' => 'failed']);
     }
@@ -67,6 +68,7 @@ class EbayCsvImportTest extends TestCase
             app(OrderImportService::class)->importFromCsv(UploadedFile::fake()->createWithContent('orders.csv', $csv), null);
             $this->fail('Expected invalid date to fail the import.');
         } catch (\RuntimeException) {
+            // Expected: invalid date aborts before any order commit; assert count below.
         }
         $this->assertSame(0, Order::count());
     }
@@ -79,5 +81,34 @@ class EbayCsvImportTest extends TestCase
         $service->importFromCsv(UploadedFile::fake()->createWithContent('second.csv', $csv), null);
 
         $this->assertCount(1, Order::firstOrFail()->lineItems);
+    }
+
+    public function test_it_persists_full_csv_payload_and_buyer_fields(): void
+    {
+        $header = 'Order Number,Sale Date,Transaction ID,Item Number,Item Title,Custom Label,Variation Details,Quantity,Sold For,Shipping And Handling,Total Price,Buyer Username,Buyer Name,Buyer Email,Sold Via Promoted Listings,Ship To Name,Ship To Phone,Ship To Address 1,Ship To Address 2,Ship To City,Ship To State,Ship To Zip,Ship To Country';
+        $row = '13-14975-00010,Aug-02-26,10085125720813,397424275164,Megadeth Shirt,,"[Size:M,Size Type:Regular]",1,$15.74,$1.99,$17.73,harharrlind,Lindsey Harris,buyer@members.ebay.com,Yes,Lindsey Harris,+1 479-692-3507,4168 SR 326,,Russellville,AR,72802-1427,US';
+        $service = app(OrderImportService::class);
+
+        $service->importFromCsv(UploadedFile::fake()->createWithContent('first.csv', "{$header}\n{$row}\n"), null);
+
+        $order = Order::with('lineItems')->firstOrFail();
+        $this->assertSame('harharrlind', $order->ebay_buyer_username);
+        $this->assertSame('Lindsey Harris', $order->ebay_buyer_name);
+        $this->assertSame('buyer@members.ebay.com', $order->ebay_buyer_email);
+        $this->assertSame('buyer@members.ebay.com', $order->ebay_export_rows[0]['Buyer Email']);
+        $this->assertSame('Yes', $order->ebay_export_rows[0]['Sold Via Promoted Listings']);
+        $this->assertArrayNotHasKey('_row', $order->ebay_export_rows[0]);
+        $this->assertSame('[Size:M,Size Type:Regular]', $order->lineItems->first()->ebay_raw['Variation Details']);
+        $this->assertSame('397424275164', $order->lineItems->first()->ebay_raw['Item Number']);
+
+        $updated = str_replace('buyer@members.ebay.com', 'updated@members.ebay.com', $row);
+        $service->importFromCsv(UploadedFile::fake()->createWithContent('second.csv', "{$header}\n{$updated}\n"), null);
+
+        $order->refresh()->load('lineItems');
+        $this->assertSame(1, Order::count());
+        $this->assertCount(1, $order->lineItems);
+        $this->assertSame('updated@members.ebay.com', $order->ebay_buyer_email);
+        $this->assertSame('updated@members.ebay.com', $order->ebay_export_rows[0]['Buyer Email']);
+        $this->assertSame('updated@members.ebay.com', $order->lineItems->first()->ebay_raw['Buyer Email']);
     }
 }
