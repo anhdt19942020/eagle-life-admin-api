@@ -61,18 +61,18 @@ erDiagram
 
 | # | Phase | Status | Depends |
 |---|-------|--------|---------|
-| 1 | [Schema sales_groups](./phase-01-start.md) | Pending | — |
-| 2 | [Seed roles and permissions](./phase-02-seed-roles-and-permissions.md) | Pending | 1 |
-| 3 | [Wire APIs and middleware](./phase-03-wire-apis-and-middleware.md) | Pending | 1, 2 |
-| 4 | [Tests and API docs](./phase-04-tests-and-api-docs.md) | Pending | 3 |
+| 1 | [Schema sales_groups](./phase-01-start.md) | Completed | — |
+| 2 | [Seed roles and permissions](./phase-02-seed-roles-and-permissions.md) | Completed | 1 |
+| 3 | [Wire APIs and middleware](./phase-03-wire-apis-and-middleware.md) | Completed | 1, 2 |
+| 4 | [Tests and API docs](./phase-04-tests-and-api-docs.md) | Completed | 3 |
 
 ## Success Criteria
 
-- [ ] Migration applies on SQLite/MySQL; FK + platform index present
-- [ ] Seeder yields only `admin`, `seller`, `group_leader` with matrix above
-- [ ] `/api/sales-groups` CRUD works for admin; 403 without permission
-- [ ] User store/update enforces group rules by role
-- [ ] Feature tests green; `API_DOCS.md` documents roles, permissions, sales-groups, user payload
+- [x] Migration applies on SQLite/MySQL; FK + platform index present
+- [x] Seeder yields only `admin`, `seller`, `group_leader` with matrix above
+- [x] `/api/sales-groups` CRUD works for admin; 403 without permission
+- [x] User store/update enforces group rules by role
+- [x] Feature tests green; `API_DOCS.md` documents roles, permissions, sales-groups, user payload
 
 ## Risks
 

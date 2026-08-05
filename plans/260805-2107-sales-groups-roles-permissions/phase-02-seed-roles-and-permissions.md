@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Seed roles and permissions"
-status: pending
+status: completed
 priority: P1
 effort: "2h"
 dependencies: [1]

@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Wire APIs and middleware"
-status: pending
+status: completed
 priority: P1
 effort: "3h"
 dependencies: [1, 2]

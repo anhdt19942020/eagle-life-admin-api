@@ -1,7 +1,7 @@
 ---
 phase: 1
 title: "Schema sales_groups"
-status: pending
+status: completed
 priority: P1
 effort: "1.5h"
 dependencies: []
