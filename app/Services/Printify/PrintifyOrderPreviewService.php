@@ -116,11 +116,18 @@ class PrintifyOrderPreviewService
             ];
         }
 
-        $sku = trim((string) $lineItem->custom_label);
-        if ($sku === '') {
-            $sku = trim((string) $lineItem->item_number);
+        $requestedSku = trim((string) $lineItem->custom_label);
+        $defaultSku = trim((string) config('services.printify.default_sku', ''));
+
+        $attemptSkus = [];
+        if ($requestedSku !== '') {
+            $attemptSkus[] = ['sku' => $requestedSku, 'source' => 'sku'];
         }
-        if ($sku === '') {
+        if ($defaultSku !== '' && $defaultSku !== $requestedSku) {
+            $attemptSkus[] = ['sku' => $defaultSku, 'source' => 'default'];
+        }
+
+        if ($attemptSkus === []) {
             return [
                 'line_item_id' => $lineItem->id,
                 'sku' => null,
@@ -131,44 +138,50 @@ class PrintifyOrderPreviewService
             ];
         }
 
-        $matches = PrintifyProductVariant::query()
-            ->where('sku', $sku)
-            ->where('is_enabled', true)
-            ->whereHas('product', fn ($query) => $query->where('printify_shop_id', $shop->id))
-            ->with('product')
-            ->get();
+        $lastError = null;
+        foreach ($attemptSkus as $attempt) {
+            $matches = PrintifyProductVariant::query()
+                ->where('sku', $attempt['sku'])
+                ->where('is_enabled', true)
+                ->whereHas('product', fn ($query) => $query->where('printify_shop_id', $shop->id))
+                ->with('product')
+                ->get();
 
-        if ($matches->isEmpty()) {
+            if ($matches->isEmpty()) {
+                $lastError = "Line item {$lineItem->id}: no enabled Printify variant with SKU [{$attempt['sku']}].";
+                continue;
+            }
+
+            if ($matches->count() > 1) {
+                return [
+                    'line_item_id' => $lineItem->id,
+                    'sku' => $attempt['sku'],
+                    'source' => $attempt['source'],
+                    'printify_variant_id' => null,
+                    'printify_product_id' => null,
+                    'error' => "Line item {$lineItem->id}: ambiguous SKU [{$attempt['sku']}] matches {$matches->count()} variants; provide a manual mapping.",
+                ];
+            }
+
+            $variant = $matches->first();
+
             return [
                 'line_item_id' => $lineItem->id,
-                'sku' => $sku,
-                'source' => 'sku',
-                'printify_variant_id' => null,
-                'printify_product_id' => null,
-                'error' => "Line item {$lineItem->id}: no enabled Printify variant with SKU [{$sku}].",
+                'sku' => $attempt['sku'],
+                'source' => $attempt['source'],
+                'printify_variant_id' => (int) $variant->printify_variant_id,
+                'printify_product_id' => (string) $variant->product->printify_product_id,
+                'error' => null,
             ];
         }
-
-        if ($matches->count() > 1) {
-            return [
-                'line_item_id' => $lineItem->id,
-                'sku' => $sku,
-                'source' => 'sku',
-                'printify_variant_id' => null,
-                'printify_product_id' => null,
-                'error' => "Line item {$lineItem->id}: ambiguous SKU [{$sku}] matches {$matches->count()} variants; provide a manual mapping.",
-            ];
-        }
-
-        $variant = $matches->first();
 
         return [
             'line_item_id' => $lineItem->id,
-            'sku' => $sku,
-            'source' => 'sku',
-            'printify_variant_id' => (int) $variant->printify_variant_id,
-            'printify_product_id' => (string) $variant->product->printify_product_id,
-            'error' => null,
+            'sku' => $requestedSku !== '' ? $requestedSku : $defaultSku,
+            'source' => 'unresolved',
+            'printify_variant_id' => null,
+            'printify_product_id' => null,
+            'error' => $lastError ?? "Line item {$lineItem->id}: missing Custom Label/SKU; provide a manual variant mapping.",
         ];
     }
 }

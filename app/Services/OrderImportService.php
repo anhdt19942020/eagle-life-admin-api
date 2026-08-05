@@ -300,10 +300,10 @@ class OrderImportService
         $fallback = $transaction === '' ? $this->fallbackIdentity($row) : null;
         $identity = $transaction === '' ? ['fallback_identity' => $fallback] : ['transaction_id' => $transaction];
         $itemNumber = trim((string) ($row['Item Number'] ?? ''));
-        // eBay often leaves Custom Label blank; default to Item Number for Printify SKU mapping.
+        // eBay Custom Label is often blank / not a Printify SKU — default to shop placeholder SKU (edit product on Printify later).
         $customLabel = trim((string) ($row['Custom Label'] ?? ''));
         if ($customLabel === '') {
-            $customLabel = $itemNumber;
+            $customLabel = trim((string) config('services.printify.default_sku', ''));
         }
 
         $item = OrderLineItem::firstOrNew(['order_id' => $orderId] + $identity);

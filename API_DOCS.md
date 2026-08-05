@@ -447,7 +447,7 @@ File export từ eBay; parser bỏ dòng rỗng trước header, group theo `Ord
 | `Ship To Country`       | Country code                       |
 
 **Cột tùy chọn:** `Transaction ID`, `Item Title`, `Custom Label`, `Variation Details`, `Ship To Phone`, `Ship To Address 2`, `Ship To State`.  
-Nếu `Custom Label` trống → hệ thống **mặc định = `Item Number`** (dùng làm SKU map Printify).
+Nếu `Custom Label` trống / không khớp Printify SKU → dùng `PRINTIFY_DEFAULT_SKU` (placeholder shop Nastya DL; sửa sản phẩm trên Printify sau).
 
 **Response success (200):**
 
@@ -550,7 +550,7 @@ Nếu `Custom Label` trống → hệ thống **mặc định = `Item Number`** 
 }
 ```
 
-`line_mappings` optional. Không có mapping thủ công → resolve theo `Custom Label` (hoặc `Item Number` nếu Custom Label trống) = `printify_product_variants.sku` trong shop. Ambiguous / missing SKU → `ready=false` + `errors`.
+`line_mappings` optional. Không có mapping thủ công → resolve theo `Custom Label` = `printify_product_variants.sku`; nếu trống/không khớp → fallback `PRINTIFY_DEFAULT_SKU`. Ambiguous SKU → `ready=false` + `errors`.
 
 **Response `data`:** `ready`, `errors`, `line_mappings[]`, `payload` (null nếu chưa ready). `payload` khớp shape create-order Printify (`external_id`, `line_items`, `address_to`, …).
 

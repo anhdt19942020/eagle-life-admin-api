@@ -88,6 +88,7 @@ class PrintifyOrderPreviewTest extends TestCase
     public function test_preview_reports_missing_sku_mapping_without_calling_printify(): void
     {
         $this->actingCreator();
+        config()->set('services.printify.default_sku', '');
         $shop = $this->readyShop();
         $order = $this->importOrderWithSku('UNKNOWN-SKU');
 
@@ -96,6 +97,37 @@ class PrintifyOrderPreviewTest extends TestCase
             ->assertJsonPath('data.ready', false)
             ->assertJsonPath('data.payload', null)
             ->assertJsonFragment(['Line item '.$order->lineItems->first()->id.': no enabled Printify variant with SKU [UNKNOWN-SKU].']);
+    }
+
+    public function test_preview_falls_back_to_default_sku_when_custom_label_unmatched(): void
+    {
+        $this->actingCreator();
+        $defaultSku = '25196488530386321298';
+        config()->set('services.printify.default_sku', $defaultSku);
+        $shop = $this->readyShop();
+        $remoteProductId = '69ae87345ef4eca23b03fe79';
+        $product = PrintifyProduct::create([
+            'printify_shop_id' => $shop->id,
+            'printify_product_id' => $remoteProductId,
+            'title' => 'J599 placeholder',
+        ]);
+        PrintifyProductVariant::create([
+            'printify_product_id' => $product->id,
+            'printify_variant_id' => 120321,
+            'sku' => $defaultSku,
+            'title' => 'S / Royal',
+            'is_enabled' => true,
+        ]);
+
+        $order = $this->importOrderWithSku('UNKNOWN-SKU');
+
+        $this->postJson("/api/orders/{$order->id}/printify-preview", ['shop_id' => $shop->id])
+            ->assertOk()
+            ->assertJsonPath('data.ready', true)
+            ->assertJsonPath('data.line_mappings.0.source', 'default')
+            ->assertJsonPath('data.line_mappings.0.sku', $defaultSku)
+            ->assertJsonPath('data.payload.line_items.0.product_id', $remoteProductId)
+            ->assertJsonPath('data.payload.line_items.0.variant_id', 120321);
     }
 
     public function test_preview_accepts_manual_variant_mapping(): void

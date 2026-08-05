@@ -38,6 +38,9 @@ return [
         'retry_times' => (int) env('PRINTIFY_RETRY_TIMES', 3),
         'retry_sleep_ms' => (int) env('PRINTIFY_RETRY_SLEEP_MS', 500),
         'sync_lock_seconds' => (int) env('PRINTIFY_SYNC_LOCK_SECONDS', 900),
+        // Nastya DL placeholder: create-order uses this when Custom Label missing / unmatched; edit product on Printify after.
+        'default_shop_id' => (int) env('PRINTIFY_DEFAULT_SHOP_ID', 389),
+        'default_sku' => env('PRINTIFY_DEFAULT_SKU', '25196488530386321298'),
     ],
 
 ];
