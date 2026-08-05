@@ -17,16 +17,26 @@ class PrintifySyncService
     {
         return $this->accountLocked(function (): int {
             $remote = $this->client->get('/shops.json');
-            $ids = collect($remote)->pluck('id')->map(fn ($id) => (string) $id);
+            $ids = collect($remote)->pluck('id')->map(fn ($id) => (int) $id);
             PrintifyShop::whereNotIn('printify_shop_id', $ids)->update(['is_active' => false]);
 
             return collect($remote)->map(function (array $shop) {
-                $local = PrintifyShop::where('printify_shop_id', $shop['id'])->first();
-                $reactivated = $local === null || !$local->is_active;
+                $remoteId = (int) $shop['id'];
+                $local = PrintifyShop::where('printify_shop_id', $remoteId)->first();
+                $reactivated = $local === null || ! $local->is_active;
                 $attributes = ['title' => $shop['title'], 'is_active' => true, 'synced_at' => now()];
-                if ($reactivated) $attributes += ['orders_sync_state' => 'pending', 'orders_sync_completed_at' => null, 'orders_sync_watermark' => null, 'manual_approval_confirmed_by' => null, 'manual_approval_confirmed_at' => null];
+                if ($reactivated) {
+                    $attributes += [
+                        'orders_sync_state' => 'pending',
+                        'orders_sync_completed_at' => null,
+                        'orders_sync_watermark' => null,
+                        'manual_approval_confirmed_by' => null,
+                        'manual_approval_confirmed_at' => null,
+                    ];
+                }
 
-                return PrintifyShop::updateOrCreate(['printify_shop_id' => $shop['id']], $attributes);
+                // Unique on printify_shop_id — upsert, never insert duplicate.
+                return PrintifyShop::updateOrCreate(['printify_shop_id' => $remoteId], $attributes);
             })->count();
         });
     }

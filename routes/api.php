@@ -34,6 +34,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Printify catalog - Phase 7
     Route::get('/printify/shops', [PrintifyShopController::class, 'index'])->middleware('permission:printify.catalog.view');
+    Route::post('/printify/shops/sync', [PrintifyShopController::class, 'sync'])->middleware('permission:printify.sync');
+    Route::patch('/printify/shops/{shop}', [PrintifyShopController::class, 'updateDefaultSku'])->middleware('permission:printify.shop-readiness.confirm');
     Route::post('/printify/shops/{shop}/confirm-manual-approval', [PrintifyShopController::class, 'confirmManualApproval'])->middleware('permission:printify.shop-readiness.confirm');
     Route::post('/printify/shops/{shop}/open', [PrintifyShopController::class, 'open'])->middleware('permission:printify.shop-readiness.confirm');
     Route::post('/printify/shops/{shop}/close', [PrintifyShopController::class, 'close'])->middleware('permission:printify.shop-readiness.confirm');

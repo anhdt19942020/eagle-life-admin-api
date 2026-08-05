@@ -11,6 +11,7 @@ class PrintifyShop extends Model
     protected $fillable = [
         'printify_shop_id',
         'title',
+        'default_sku',
         'is_active',
         'is_open',
         'open_state_changed_by',

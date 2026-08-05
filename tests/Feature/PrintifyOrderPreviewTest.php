@@ -90,7 +90,6 @@ class PrintifyOrderPreviewTest extends TestCase
     public function test_preview_reports_missing_sku_mapping_without_calling_printify(): void
     {
         $this->actingCreator();
-        config()->set('services.printify.default_sku', '');
         $shop = $this->readyShop();
         $order = $this->importOrderWithSku('UNKNOWN-SKU');
 
@@ -101,12 +100,12 @@ class PrintifyOrderPreviewTest extends TestCase
             ->assertJsonFragment(['Line item '.$order->lineItems->first()->id.': no enabled Printify variant with SKU [UNKNOWN-SKU].']);
     }
 
-    public function test_preview_falls_back_to_default_sku_when_custom_label_unmatched(): void
+    public function test_preview_falls_back_to_shop_default_sku_when_custom_label_unmatched(): void
     {
         $this->actingCreator();
         $defaultSku = '25196488530386321298';
-        config()->set('services.printify.default_sku', $defaultSku);
         $shop = $this->readyShop();
+        $shop->forceFill(['default_sku' => $defaultSku])->save();
         $remoteProductId = '69ae87345ef4eca23b03fe79';
         $product = PrintifyProduct::create([
             'printify_shop_id' => $shop->id,
@@ -130,6 +129,50 @@ class PrintifyOrderPreviewTest extends TestCase
             ->assertJsonPath('data.line_mappings.0.sku', $defaultSku)
             ->assertJsonPath('data.payload.line_items.0.product_id', $remoteProductId)
             ->assertJsonPath('data.payload.line_items.0.variant_id', 120321);
+    }
+
+    public function test_preview_uses_shop_default_when_custom_label_blank(): void
+    {
+        $this->actingCreator();
+        $defaultSku = 'SHOP-BLANK-DEFAULT';
+        $shop = $this->readyShop();
+        $shop->forceFill(['default_sku' => $defaultSku])->save();
+        $remoteProductId = 'abc123def456abc123def456';
+        $product = PrintifyProduct::create([
+            'printify_shop_id' => $shop->id,
+            'printify_product_id' => $remoteProductId,
+            'title' => 'Default product',
+        ]);
+        PrintifyProductVariant::create([
+            'printify_product_id' => $product->id,
+            'printify_variant_id' => 4242,
+            'sku' => $defaultSku,
+            'title' => 'Default',
+            'is_enabled' => true,
+        ]);
+
+        $order = $this->importOrderWithSku('');
+        $this->assertNull($order->lineItems->first()->custom_label);
+
+        $this->postJson("/api/orders/{$order->id}/printify-preview", ['shop_id' => $shop->id])
+            ->assertOk()
+            ->assertJsonPath('data.ready', true)
+            ->assertJsonPath('data.line_mappings.0.source', 'default')
+            ->assertJsonPath('data.line_mappings.0.sku', $defaultSku);
+    }
+
+    public function test_preview_errors_when_blank_label_and_no_shop_default(): void
+    {
+        $this->actingCreator();
+        $shop = $this->readyShop();
+        $order = $this->importOrderWithSku('');
+
+        $this->postJson("/api/orders/{$order->id}/printify-preview", ['shop_id' => $shop->id])
+            ->assertOk()
+            ->assertJsonPath('data.ready', false)
+            ->assertJsonFragment([
+                'Line item '.$order->lineItems->first()->id.': missing Custom Label/SKU and shop has no default_sku; provide a manual variant mapping or set shop default SKU.',
+            ]);
     }
 
     public function test_preview_accepts_manual_variant_mapping(): void

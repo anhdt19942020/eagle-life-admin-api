@@ -1,5 +1,7 @@
 <?php
 
+// db-refresh-allow: isolated sqlite DatabaseMigrations (existing project pattern)
+
 namespace Tests\Feature;
 
 use App\Models\Order;
@@ -24,10 +26,9 @@ class EbayCsvImportTest extends TestCase
         $order = Order::firstOrFail();
         $this->assertCount(2, $order->lineItems);
         $this->assertSame('Austin', $order->fulfillmentAddress->city);
-        // Empty Custom Label defaults to configured Printify placeholder SKU.
-        $defaultSku = (string) config('services.printify.default_sku');
-        $this->assertSame($defaultSku, $order->lineItems->firstWhere('transaction_id', 'T-1')->custom_label);
-        $this->assertSame($defaultSku, $order->lineItems->firstWhere('transaction_id', 'T-2')->custom_label);
+        // Empty Custom Label stays null — resolved via shop.default_sku at Printify preview/create.
+        $this->assertNull($order->lineItems->firstWhere('transaction_id', 'T-1')->custom_label);
+        $this->assertNull($order->lineItems->firstWhere('transaction_id', 'T-2')->custom_label);
     }
 
     public function test_it_rejects_malformed_money_values(): void

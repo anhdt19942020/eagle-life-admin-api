@@ -77,20 +77,26 @@ deploy_api() {
       --exclude='.phpunit*' \
       --exclude='docs/deployment.md' \
       --exclude='_*.php' \
+      --exclude='bootstrap/cache/' \
       "${api_dir}/" "${DEPLOY_HOST}:${DEPLOY_API_ROOT}/"
   else
     info "rsync not found — scp core paths"
     local paths=(
-      app artisan bootstrap composer.json composer.lock config database public routes resources
+      app artisan composer.json composer.lock config database public routes resources
       API_DOCS.md .env.example
     )
     for p in "${paths[@]}"; do
       [[ -e "${api_dir}/${p}" ]] || continue
       scp_cmd -r "${api_dir}/${p}" "${DEPLOY_HOST}:${DEPLOY_API_ROOT}/"
     done
+    # bootstrap without local cache (dev packages.php breaks prod --no-dev)
+    if [[ -d "${api_dir}/bootstrap" ]]; then
+      [[ -f "${api_dir}/bootstrap/app.php" ]] && scp_cmd "${api_dir}/bootstrap/app.php" "${DEPLOY_HOST}:${DEPLOY_API_ROOT}/bootstrap/"
+      [[ -f "${api_dir}/bootstrap/providers.php" ]] && scp_cmd "${api_dir}/bootstrap/providers.php" "${DEPLOY_HOST}:${DEPLOY_API_ROOT}/bootstrap/"
+    fi
   fi
 
-  local remote_cmds="cd ${DEPLOY_API_ROOT} && php artisan optimize:clear"
+  local remote_cmds="cd ${DEPLOY_API_ROOT} && rm -f bootstrap/cache/packages.php bootstrap/cache/services.php bootstrap/cache/config.php && php artisan optimize:clear"
   if [[ "${do_migrate}" == "1" ]]; then
     remote_cmds+=" && php artisan migrate --force"
   fi

@@ -121,7 +121,7 @@ class PrintifyOrderPreviewService
         }
 
         $requestedSku = trim((string) $lineItem->custom_label);
-        $defaultSku = trim((string) config('services.printify.default_sku', ''));
+        $defaultSku = trim((string) ($shop->default_sku ?? ''));
 
         $attemptSkus = [];
         if ($requestedSku !== '') {
@@ -138,7 +138,7 @@ class PrintifyOrderPreviewService
                 'source' => 'unresolved',
                 'printify_variant_id' => null,
                 'printify_product_id' => null,
-                'error' => "Line item {$lineItem->id}: missing Custom Label/SKU; provide a manual variant mapping.",
+                'error' => "Line item {$lineItem->id}: missing Custom Label/SKU and shop has no default_sku; provide a manual variant mapping or set shop default SKU.",
             ];
         }
 

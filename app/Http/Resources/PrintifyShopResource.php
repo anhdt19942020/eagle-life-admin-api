@@ -13,6 +13,7 @@ class PrintifyShopResource extends JsonResource
             'id' => $this->id,
             'printify_shop_id' => $this->printify_shop_id,
             'title' => $this->title,
+            'default_sku' => $this->default_sku,
             'is_active' => $this->is_active,
             'is_open' => $this->is_open,
             'open_state_changed_at' => $this->open_state_changed_at,

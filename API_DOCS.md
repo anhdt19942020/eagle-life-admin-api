@@ -447,7 +447,7 @@ File export từ eBay; parser bỏ dòng rỗng trước header, group theo `Ord
 | `Ship To Country`       | Country code                       |
 
 **Cột tùy chọn:** `Transaction ID`, `Item Title`, `Custom Label`, `Variation Details`, `Ship To Phone`, `Ship To Address 2`, `Ship To State`.  
-Nếu `Custom Label` trống / không khớp Printify SKU → dùng `PRINTIFY_DEFAULT_SKU` (placeholder shop Nastya DL; sửa sản phẩm trên Printify sau).
+Nếu `Custom Label` trống → để `null`. Khi preview/create Printify: resolve `Custom Label` = `printify_product_variants.sku` trong shop đã chọn; nếu trống/không khớp → fallback `printify_shops.default_sku` của shop đó (set qua UI/API). Ambiguous SKU → `ready=false` + `errors`.
 
 **Response success (200):**
 
@@ -499,7 +499,7 @@ Nếu `Custom Label` trống / không khớp Printify SKU → dùng `PRINTIFY_DE
 | --------------------------------- | ----------------------------------- | ------------ |
 | `printify.catalog.view`           | List shops / products               | ✅           |
 | `printify.shop-readiness.confirm` | Confirm Manual approval trên shop   | ✅           |
-| `printify.sync`                   | Reserved (Artisan/schedule)         | ❌ HTTP      |
+| `printify.sync`                   | Sync shops (HTTP + Artisan)         | ✅ `POST /printify/shops/sync` |
 | `printify.order.create`           | Preview/tạo đơn Printify            | ✅ preview + create |
 | `printify.reconcile`              | Đối soát (sau)                      | ❌           |
 
@@ -520,9 +520,16 @@ Nếu `Custom Label` trống / không khớp Printify SKU → dùng `PRINTIFY_DE
 - **Permission**: `printify.catalog.view`
 - **Query**: `active_only` (default `true` nếu không gửi), `open_only` (optional). Quản lý shop: mặc định chỉ `is_active`. Picker tạo đơn: `active_only=1&open_only=1`.
 
-**Response:** `{ status, message, data }` với `data` là **paginator**. Item gồm `id` (local), `printify_shop_id`, `title`, `is_active`, `is_open`, `open_state_changed_at`, `orders_sync_state`, `orders_sync_completed_at`, `manual_approval_confirmed_at`, `synced_at`, `ready_for_creation`.
+**Response:** `{ status, message, data }` với `data` là **paginator**. Item gồm `id` (local), `printify_shop_id`, `title`, `default_sku`, `is_active`, `is_open`, `open_state_changed_at`, `orders_sync_state`, `orders_sync_completed_at`, `manual_approval_confirmed_at`, `synced_at`, `ready_for_creation`.
 
-`is_active` = còn trên Printify (sync). `is_open` = admin cho phép chọn khi tạo đơn (độc lập với sync).
+`is_active` = còn trên Printify (sync). `is_open` = admin cho phép chọn khi tạo đơn (độc lập với sync). `default_sku` = SKU mặc định khi tạo đơn trên shop này (local; sync không ghi đè).
+
+### 6.3.0. Cập nhật default SKU của shop
+
+- **Đường dẫn**: `PATCH /printify/shops/{shop}`
+- **Permission**: `printify.shop-readiness.confirm`
+- **Body:** `{ "default_sku": "..." | null }` — null/empty xóa default. Non-empty phải khớp đúng 1 enabled variant đã sync của shop; 0 hoặc >1 → `422`.
+- Sync shops **không** ghi đè `default_sku`.
 
 ### 6.3.1. Mở / đóng shop (selectable)
 
@@ -530,6 +537,13 @@ Nếu `Custom Label` trống / không khớp Printify SKU → dùng `PRINTIFY_DE
 - **Permission**: `printify.shop-readiness.confirm`
 - **Path param**: `shop` = local `printify_shops.id`
 - Sync shops **không** ghi đè `is_open`.
+
+### 6.3.2. Sync shops từ Printify (manual)
+
+- **Đường dẫn**: `POST /printify/shops/sync`
+- **Permission**: `printify.sync`
+- Gọi Printify `GET /shops.json`, **upsert** theo `printify_shop_id` (unique) — không tạo bản ghi trùng. Shop không còn trên Printify → `is_active=false`. Giữ `is_open` local.
+- **Response `data`:** `{ synced: number }` (số shop trả về từ Printify).
 
 ### 6.4. Xác nhận Manual Approval
 
@@ -561,7 +575,7 @@ Nếu `Custom Label` trống / không khớp Printify SKU → dùng `PRINTIFY_DE
 }
 ```
 
-`line_mappings` optional. Không có mapping thủ công → resolve theo `Custom Label` = `printify_product_variants.sku`; nếu trống/không khớp → fallback `PRINTIFY_DEFAULT_SKU`. Ambiguous SKU → `ready=false` + `errors`.
+`line_mappings` optional. Không có mapping thủ công → resolve theo `Custom Label` = `printify_product_variants.sku` trong shop đã chọn; nếu trống/không khớp → fallback `shop.default_sku`. Ambiguous SKU → `ready=false` + `errors`.
 
 **Response `data`:** `ready`, `errors`, `line_mappings[]`, `payload` (null nếu chưa ready). `payload` khớp shape create-order Printify (`external_id`, `line_items`, `address_to`, …).
 
