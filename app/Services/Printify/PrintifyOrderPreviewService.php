@@ -22,6 +22,10 @@ class PrintifyOrderPreviewService
             throw new RuntimeException('Printify shop is closed for order creation.');
         }
 
+        if (! filled(trim((string) $shop->default_sku))) {
+            throw new RuntimeException('Printify shop is not ready: missing default_sku. Set Default SKU on Printify Shops (sync 1 product first if needed).');
+        }
+
         if (! $shop->isReadyForCreation()) {
             throw new RuntimeException('Printify shop is not ready for order creation.');
         }

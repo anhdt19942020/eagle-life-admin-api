@@ -53,6 +53,7 @@ class PrintifyShop extends Model
         // Per-shop gate: other shops' sync/approval state must not block this shop.
         return $this->is_active
             && $this->is_open
+            && filled(trim((string) $this->default_sku))
             && $this->manual_approval_confirmed_at !== null
             && $this->orders_sync_state === 'complete'
             && ! $this->orders()->where('has_conflict', true)->exists();

@@ -1,5 +1,7 @@
 <?php
 
+// db-refresh-allow: isolated sqlite DatabaseMigrations
+
 namespace Tests\Feature;
 
 use App\Models\Order;
@@ -26,6 +28,7 @@ class PrintifyOrderCreateTest extends TestCase
             'printify_shop_id' => 101,
             'title' => 'Primary',
             'is_active' => true,
+            'default_sku' => 'TEST-DEFAULT-SKU',
             'orders_sync_state' => 'complete',
             'manual_approval_confirmed_at' => now(),
         ]);

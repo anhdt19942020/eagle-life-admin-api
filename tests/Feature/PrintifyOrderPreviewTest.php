@@ -26,6 +26,7 @@ class PrintifyOrderPreviewTest extends TestCase
             'printify_shop_id' => 101,
             'title' => 'Primary',
             'is_active' => true,
+            'default_sku' => 'TEST-DEFAULT-SKU',
             'orders_sync_state' => 'complete',
             'manual_approval_confirmed_at' => now(),
         ]);
@@ -93,11 +94,13 @@ class PrintifyOrderPreviewTest extends TestCase
         $shop = $this->readyShop();
         $order = $this->importOrderWithSku('UNKNOWN-SKU');
 
+        // Label unmatched → falls back to shop default_sku; both miss local variants.
         $this->postJson("/api/orders/{$order->id}/printify-preview", ['shop_id' => $shop->id])
             ->assertOk()
             ->assertJsonPath('data.ready', false)
             ->assertJsonPath('data.payload', null)
-            ->assertJsonFragment(['Line item '.$order->lineItems->first()->id.': no enabled Printify variant with SKU [UNKNOWN-SKU].']);
+            ->assertJsonPath('data.line_mappings.0.sku', 'UNKNOWN-SKU')
+            ->assertJsonFragment(['Line item '.$order->lineItems->first()->id.': no enabled Printify variant with SKU [TEST-DEFAULT-SKU].']);
     }
 
     public function test_preview_falls_back_to_shop_default_sku_when_custom_label_unmatched(): void
@@ -161,17 +164,18 @@ class PrintifyOrderPreviewTest extends TestCase
             ->assertJsonPath('data.line_mappings.0.sku', $defaultSku);
     }
 
-    public function test_preview_errors_when_blank_label_and_no_shop_default(): void
+    public function test_preview_errors_when_blank_label_and_default_sku_not_in_catalog(): void
     {
         $this->actingCreator();
         $shop = $this->readyShop();
         $order = $this->importOrderWithSku('');
 
+        // Hard gate requires default_sku; blank label uses it — fail if variant not synced.
         $this->postJson("/api/orders/{$order->id}/printify-preview", ['shop_id' => $shop->id])
             ->assertOk()
             ->assertJsonPath('data.ready', false)
             ->assertJsonFragment([
-                'Line item '.$order->lineItems->first()->id.': missing Custom Label/SKU and shop has no default_sku; provide a manual variant mapping or set shop default SKU.',
+                'Line item '.$order->lineItems->first()->id.': no enabled Printify variant with SKU [TEST-DEFAULT-SKU].',
             ]);
     }
 
@@ -219,6 +223,28 @@ class PrintifyOrderPreviewTest extends TestCase
             ->assertForbidden();
     }
 
+    public function test_preview_rejects_shop_missing_default_sku(): void
+    {
+        $this->actingCreator();
+        $shop = PrintifyShop::create([
+            'printify_shop_id' => 101,
+            'title' => 'No default',
+            'is_active' => true,
+            'is_open' => true,
+            'orders_sync_state' => 'complete',
+            'manual_approval_confirmed_at' => now(),
+            'default_sku' => null,
+        ]);
+        $order = $this->importOrderWithSku('SKU-M');
+
+        $this->postJson("/api/orders/{$order->id}/printify-preview", ['shop_id' => $shop->id])
+            ->assertStatus(422)
+            ->assertJsonPath(
+                'message',
+                'Printify shop is not ready: missing default_sku. Set Default SKU on Printify Shops (sync 1 product first if needed).'
+            );
+    }
+
     public function test_preview_rejects_closed_shop(): void
     {
         $this->actingCreator();
@@ -227,6 +253,7 @@ class PrintifyOrderPreviewTest extends TestCase
             'title' => 'Closed',
             'is_active' => true,
             'is_open' => false,
+            'default_sku' => 'TEST-DEFAULT-SKU',
             'orders_sync_state' => 'complete',
             'manual_approval_confirmed_at' => now(),
         ]);

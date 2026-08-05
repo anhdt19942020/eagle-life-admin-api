@@ -524,6 +524,8 @@ Nếu `Custom Label` trống → để `null`. Khi preview/create Printify: reso
 
 `is_active` = còn trên Printify (sync). `is_open` = admin cho phép chọn khi tạo đơn (độc lập với sync). `default_sku` = SKU mặc định khi tạo đơn trên shop này (local; sync không ghi đè).
 
+`ready_for_creation` = `is_active` + `is_open` + **có `default_sku`** + manual approval + `orders_sync_state=complete` + không conflict order. Thiếu default → không ready; picker tạo đơn chỉ hiện shop ready.
+
 ### 6.3.0. Cập nhật default SKU của shop
 
 - **Đường dẫn**: `PATCH /printify/shops/{shop}`
@@ -600,7 +602,8 @@ Luồng (as implemented):
 | Artisan command | Mô tả |
 | --- | --- |
 | `php artisan printify:sync-shops` | Sync shops |
-| `php artisan printify:sync-products {--shop-id=} {--product-id=} {--limit-pages=} {--max-products=}` | Sync products. Prefer `--product-id=` (1 product) hoặc `--max-products=1` khi chỉ cần seed default SKU — tránh full catalog shop lớn. |
+| `php artisan printify:sync-products {--shop-id=} {--product-id=} {--limit-pages=} {--max-products=}` | Sync products. Prefer `--product-id=` (1 product) hoặc `--max-products=1` khi chỉ cần seed default SKU — tránh full catalog shop lớn. **Không** chạy hourly (đã tắt schedule). |
+| `php artisan printify:ensure-default-sku {--shop-id=} {--open-only} {--seed-product} {--dry-run}` | Backfill `default_sku` từ unique enabled variant; optional seed 1 product nếu shop chưa có SKU. |
 | `php artisan printify:sync-orders {--shop-id=} {--limit-pages=}` | Sync orders inbound |
 | `php artisan printify:sync-uploads {--limit-pages=}` | Sync uploads |
 
