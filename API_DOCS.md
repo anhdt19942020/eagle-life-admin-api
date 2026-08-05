@@ -518,8 +518,18 @@ Nếu `Custom Label` trống / không khớp Printify SKU → dùng `PRINTIFY_DE
 
 - **Đường dẫn**: `GET /printify/shops`
 - **Permission**: `printify.catalog.view`
+- **Query**: `active_only` (default `true` nếu không gửi), `open_only` (optional). Quản lý shop: mặc định chỉ `is_active`. Picker tạo đơn: `active_only=1&open_only=1`.
 
-**Response:** `{ status, message, data }` với `data` là **paginator** (không phải mảng phẳng). Item gồm `id` (local), `printify_shop_id`, `title`, `is_active`, `orders_sync_state`, `orders_sync_completed_at`, `manual_approval_confirmed_at`, `synced_at`, `ready_for_creation`.
+**Response:** `{ status, message, data }` với `data` là **paginator**. Item gồm `id` (local), `printify_shop_id`, `title`, `is_active`, `is_open`, `open_state_changed_at`, `orders_sync_state`, `orders_sync_completed_at`, `manual_approval_confirmed_at`, `synced_at`, `ready_for_creation`.
+
+`is_active` = còn trên Printify (sync). `is_open` = admin cho phép chọn khi tạo đơn (độc lập với sync).
+
+### 6.3.1. Mở / đóng shop (selectable)
+
+- **Đường dẫn**: `POST /printify/shops/{shop}/open` · `POST /printify/shops/{shop}/close`
+- **Permission**: `printify.shop-readiness.confirm`
+- **Path param**: `shop` = local `printify_shops.id`
+- Sync shops **không** ghi đè `is_open`.
 
 ### 6.4. Xác nhận Manual Approval
 
@@ -538,6 +548,7 @@ Nếu `Custom Label` trống / không khớp Printify SKU → dùng `PRINTIFY_DE
 - **Đường dẫn**: `POST /orders/{order}/printify-preview`
 - **Permission**: `printify.order.create`
 - **Không gọi** Printify API — chỉ build payload.
+- Shop **đóng** (`is_open=false`) → `422` `Printify shop is closed for order creation.`
 
 **Body:**
 
@@ -560,12 +571,12 @@ Nếu `Custom Label` trống / không khớp Printify SKU → dùng `PRINTIFY_DE
 
 - **Đường dẫn**: `POST /orders/{order}/printify-create`
 - **Permission**: `printify.order.create`
-- **Body:** giống `printify-preview` (`shop_id` bắt buộc, `line_mappings` optional).
+- **Body:** giống `printify-preview` (`shop_id` bắt buộc, `line_mappings` optional). Shop phải `is_open` và ready.
 
 Luồng (as implemented):
 
 1. Nếu đã có `printify_orders` cùng `printify_shop_id` + `ebay_order_number` → **không** gọi Printify; `created=false`, trả bản ghi hiện có.
-2. Build payload qua cùng logic preview; chưa `ready` → `422`.
+2. Build payload qua cùng logic preview; shop đóng / chưa `ready` → `422`.
 3. `POST /shops/{remoteShopId}/orders.json` với payload; lưu `printify_orders` (`intent_state=created`) và gắn `orders.printify_order_id`.
 
 **Response `data`:** `created` (bool), `printify_order`, `remote` (JSON Printify hoặc `[]` nếu đã tồn tại), `preview` (object preview hoặc `[]`).

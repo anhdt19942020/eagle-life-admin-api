@@ -32,9 +32,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/orders/import', [OrderImportController::class, 'import'])->middleware('permission:orders.import');
     Route::post('/orders/import-csv', [OrderImportController::class, 'importCsv'])->middleware('permission:orders.import');
 
-    // Printify catalog - Phase 7 (inbound sync / create-order: later)
+    // Printify catalog - Phase 7
     Route::get('/printify/shops', [PrintifyShopController::class, 'index'])->middleware('permission:printify.catalog.view');
     Route::post('/printify/shops/{shop}/confirm-manual-approval', [PrintifyShopController::class, 'confirmManualApproval'])->middleware('permission:printify.shop-readiness.confirm');
+    Route::post('/printify/shops/{shop}/open', [PrintifyShopController::class, 'open'])->middleware('permission:printify.shop-readiness.confirm');
+    Route::post('/printify/shops/{shop}/close', [PrintifyShopController::class, 'close'])->middleware('permission:printify.shop-readiness.confirm');
     Route::get('/printify/products', [PrintifyProductController::class, 'index'])->middleware('permission:printify.catalog.view');
     Route::post('/orders/{order}/printify-preview', [PrintifyOrderController::class, 'preview'])->middleware('permission:printify.order.create');
     Route::post('/orders/{order}/printify-create', [PrintifyOrderController::class, 'create'])->middleware('permission:printify.order.create');

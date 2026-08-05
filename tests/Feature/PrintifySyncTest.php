@@ -1,5 +1,7 @@
 <?php
 
+// db-refresh-allow: isolated sqlite DatabaseMigrations
+
 namespace Tests\Feature;
 
 use App\Models\PrintifyShop;
@@ -91,6 +93,20 @@ class PrintifySyncTest extends TestCase
 
         $this->assertTrue($readyCandidate->fresh()->isReadyForCreation());
         $this->assertFalse(PrintifyShop::where('printify_shop_id', 102)->first()->isReadyForCreation());
+    }
+
+    public function test_closed_shop_is_not_ready_for_creation(): void
+    {
+        $shop = PrintifyShop::create([
+            'printify_shop_id' => 101,
+            'title' => 'Closed',
+            'is_active' => true,
+            'is_open' => false,
+            'orders_sync_state' => 'complete',
+            'manual_approval_confirmed_at' => now(),
+        ]);
+
+        $this->assertFalse($shop->fresh()->isReadyForCreation());
     }
 
     public function test_account_lock_prevents_shop_sync_overlapping_order_sync(): void

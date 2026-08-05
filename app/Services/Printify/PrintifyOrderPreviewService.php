@@ -18,6 +18,10 @@ class PrintifyOrderPreviewService
      */
     public function preview(Order $order, PrintifyShop $shop, array $manualMappings = []): array
     {
+        if (! $shop->is_open) {
+            throw new RuntimeException('Printify shop is closed for order creation.');
+        }
+
         if (! $shop->isReadyForCreation()) {
             throw new RuntimeException('Printify shop is not ready for order creation.');
         }

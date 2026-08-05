@@ -1,5 +1,7 @@
 <?php
 
+// db-refresh-allow: isolated sqlite DatabaseMigrations
+
 namespace Tests\Feature;
 
 use App\Models\Order;
@@ -172,5 +174,23 @@ class PrintifyOrderPreviewTest extends TestCase
 
         $this->postJson("/api/orders/{$order->id}/printify-preview", ['shop_id' => $shop->id])
             ->assertForbidden();
+    }
+
+    public function test_preview_rejects_closed_shop(): void
+    {
+        $this->actingCreator();
+        $shop = PrintifyShop::create([
+            'printify_shop_id' => 101,
+            'title' => 'Closed',
+            'is_active' => true,
+            'is_open' => false,
+            'orders_sync_state' => 'complete',
+            'manual_approval_confirmed_at' => now(),
+        ]);
+        $order = $this->importOrderWithSku('SKU-M');
+
+        $this->postJson("/api/orders/{$order->id}/printify-preview", ['shop_id' => $shop->id])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Printify shop is closed for order creation.');
     }
 }
