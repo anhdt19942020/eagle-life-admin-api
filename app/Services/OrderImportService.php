@@ -293,7 +293,33 @@ class OrderImportService
     }
     private function lineItemKey(array $row): string { $transaction = trim((string) ($row['Transaction ID'] ?? '')); return $transaction === '' ? 'fallback:'.$this->fallbackIdentity($row) : 'transaction:'.$transaction; }
     private function fallbackIdentity(array $row): string { return hash('sha256', implode('|', [trim((string) ($row['Item Number'] ?? '')), trim((string) ($row['Custom Label'] ?? '')), trim((string) ($row['Variation Details'] ?? '')), $this->money($row['Sold For'] ?? null), 'USD'])); }
-    private function upsertLineItem(int $orderId, array $row, int $quantity): void { $transaction = trim((string) ($row['Transaction ID'] ?? '')); $price = $this->money($row['Sold For'] ?? null); $fallback = $transaction === '' ? $this->fallbackIdentity($row) : null; $identity = $transaction === '' ? ['fallback_identity' => $fallback] : ['transaction_id' => $transaction]; $item = OrderLineItem::firstOrNew(['order_id' => $orderId] + $identity); $item->fill(['transaction_id' => $transaction ?: null, 'fallback_identity' => $fallback, 'item_number' => $row['Item Number'] ?? null, 'title' => $row['Item Title'] ?? null, 'custom_label' => $row['Custom Label'] ?? null, 'variation' => $row['Variation Details'] ?? null, 'quantity' => $quantity, 'unit_price' => $price, 'currency' => 'USD', 'ebay_raw' => $this->sanitizeCsvPayload($row)])->save(); }
+    private function upsertLineItem(int $orderId, array $row, int $quantity): void
+    {
+        $transaction = trim((string) ($row['Transaction ID'] ?? ''));
+        $price = $this->money($row['Sold For'] ?? null);
+        $fallback = $transaction === '' ? $this->fallbackIdentity($row) : null;
+        $identity = $transaction === '' ? ['fallback_identity' => $fallback] : ['transaction_id' => $transaction];
+        $itemNumber = trim((string) ($row['Item Number'] ?? ''));
+        // eBay often leaves Custom Label blank; default to Item Number for Printify SKU mapping.
+        $customLabel = trim((string) ($row['Custom Label'] ?? ''));
+        if ($customLabel === '') {
+            $customLabel = $itemNumber;
+        }
+
+        $item = OrderLineItem::firstOrNew(['order_id' => $orderId] + $identity);
+        $item->fill([
+            'transaction_id' => $transaction ?: null,
+            'fallback_identity' => $fallback,
+            'item_number' => $itemNumber !== '' ? $itemNumber : ($row['Item Number'] ?? null),
+            'title' => $row['Item Title'] ?? null,
+            'custom_label' => $customLabel !== '' ? $customLabel : null,
+            'variation' => $row['Variation Details'] ?? null,
+            'quantity' => $quantity,
+            'unit_price' => $price,
+            'currency' => 'USD',
+            'ebay_raw' => $this->sanitizeCsvPayload($row),
+        ])->save();
+    }
     private function money(?string $value): ?float { $value = trim((string) $value); return $value === '' ? null : (float) str_replace(['$', ','], '', $value); }
     private function parseDate(?string $date): ?string
     {

@@ -118,6 +118,9 @@ class PrintifyOrderPreviewService
 
         $sku = trim((string) $lineItem->custom_label);
         if ($sku === '') {
+            $sku = trim((string) $lineItem->item_number);
+        }
+        if ($sku === '') {
             return [
                 'line_item_id' => $lineItem->id,
                 'sku' => null,
