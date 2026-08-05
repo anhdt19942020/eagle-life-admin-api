@@ -52,7 +52,8 @@ class PrintifyOrderPreviewService
             }
 
             $payloadLines[] = [
-                'product_id' => (int) $resolved['printify_product_id'],
+                // Printify product ids are opaque strings (often hex ObjectIds); never cast to int.
+                'product_id' => (string) $resolved['printify_product_id'],
                 'variant_id' => (int) $resolved['printify_variant_id'],
                 'quantity' => (int) $lineItem->quantity,
             ];
@@ -82,7 +83,7 @@ class PrintifyOrderPreviewService
 
     /**
      * @param  array{line_item_id?: int, variant_id?: int}|null  $manual
-     * @return array{line_item_id: int, sku: ?string, source: string, printify_variant_id: ?int, printify_product_id: ?int, error: ?string}
+     * @return array{line_item_id: int, sku: ?string, source: string, printify_variant_id: ?int, printify_product_id: ?string, error: ?string}
      */
     private function resolveVariant(PrintifyShop $shop, OrderLineItem $lineItem, ?array $manual): array
     {
@@ -110,7 +111,7 @@ class PrintifyOrderPreviewService
                 'sku' => $lineItem->custom_label,
                 'source' => 'manual',
                 'printify_variant_id' => (int) $variant->printify_variant_id,
-                'printify_product_id' => (int) $variant->product->printify_product_id,
+                'printify_product_id' => (string) $variant->product->printify_product_id,
                 'error' => null,
             ];
         }
@@ -163,7 +164,7 @@ class PrintifyOrderPreviewService
             'sku' => $sku,
             'source' => 'sku',
             'printify_variant_id' => (int) $variant->printify_variant_id,
-            'printify_product_id' => (int) $variant->product->printify_product_id,
+            'printify_product_id' => (string) $variant->product->printify_product_id,
             'error' => null,
         ];
     }

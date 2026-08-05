@@ -54,11 +54,12 @@ class PrintifyOrderCreateTest extends TestCase
         return Order::with(['lineItems', 'fulfillmentAddress'])->firstOrFail();
     }
 
-    private function seedMappedVariant(PrintifyShop $shop, string $sku = 'SKU-M'): void
+    private function seedMappedVariant(PrintifyShop $shop, string $sku = 'SKU-M'): string
     {
+        $remoteProductId = '5bfd0b66a342bcc9b5563216';
         $product = PrintifyProduct::create([
             'printify_shop_id' => $shop->id,
-            'printify_product_id' => 555,
+            'printify_product_id' => $remoteProductId,
             'title' => 'Tee',
         ]);
         PrintifyProductVariant::create([
@@ -68,6 +69,8 @@ class PrintifyOrderCreateTest extends TestCase
             'title' => 'M',
             'is_enabled' => true,
         ]);
+
+        return $remoteProductId;
     }
 
     private function configurePrintifyHttp(): void
@@ -83,7 +86,7 @@ class PrintifyOrderCreateTest extends TestCase
         $this->actingCreator();
         $this->configurePrintifyHttp();
         $shop = $this->readyShop();
-        $this->seedMappedVariant($shop);
+        $remoteProductId = $this->seedMappedVariant($shop);
         $order = $this->importOrderWithSku('SKU-M');
 
         Http::fake([
@@ -102,7 +105,9 @@ class PrintifyOrderCreateTest extends TestCase
 
         Http::assertSent(fn ($request) => $request->method() === 'POST'
             && $request->url() === 'https://printify.test/v1/shops/101/orders.json'
-            && $request['external_id'] === '13-14975-00010');
+            && $request['external_id'] === '13-14975-00010'
+            && ($request['line_items'][0]['product_id'] ?? null) === $remoteProductId
+            && ($request['line_items'][0]['variant_id'] ?? null) === 9991);
 
         $this->assertDatabaseHas('printify_orders', [
             'order_id' => $order->id,

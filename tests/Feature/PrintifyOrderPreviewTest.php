@@ -56,9 +56,10 @@ class PrintifyOrderPreviewTest extends TestCase
     {
         $this->actingCreator();
         $shop = $this->readyShop();
+        $remoteProductId = '5bfd0b66a342bcc9b5563216';
         $product = PrintifyProduct::create([
             'printify_shop_id' => $shop->id,
-            'printify_product_id' => 555,
+            'printify_product_id' => $remoteProductId,
             'title' => 'Tee',
         ]);
         PrintifyProductVariant::create([
@@ -77,8 +78,10 @@ class PrintifyOrderPreviewTest extends TestCase
             ->assertJsonPath('data.payload.external_id', '13-14975-00010')
             ->assertJsonPath('data.payload.address_to.email', 'buyer@members.ebay.com')
             ->assertJsonPath('data.payload.address_to.country', 'US')
-            ->assertJsonPath('data.payload.line_items.0.product_id', 555)
+            // Must remain the full Printify string id — (int) cast would truncate hex to 5.
+            ->assertJsonPath('data.payload.line_items.0.product_id', $remoteProductId)
             ->assertJsonPath('data.payload.line_items.0.variant_id', 9991)
+            ->assertJsonPath('data.line_mappings.0.printify_product_id', $remoteProductId)
             ->assertJsonPath('data.line_mappings.0.source', 'sku');
     }
 
@@ -99,9 +102,10 @@ class PrintifyOrderPreviewTest extends TestCase
     {
         $this->actingCreator();
         $shop = $this->readyShop();
+        $remoteProductId = '5cb87a8cd490a2ccb256cec4';
         $product = PrintifyProduct::create([
             'printify_shop_id' => $shop->id,
-            'printify_product_id' => 555,
+            'printify_product_id' => $remoteProductId,
             'title' => 'Tee',
         ]);
         PrintifyProductVariant::create([
@@ -124,6 +128,7 @@ class PrintifyOrderPreviewTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.ready', true)
             ->assertJsonPath('data.line_mappings.0.source', 'manual')
+            ->assertJsonPath('data.payload.line_items.0.product_id', $remoteProductId)
             ->assertJsonPath('data.payload.line_items.0.variant_id', 9991);
     }
 

@@ -553,6 +553,8 @@ File export từ eBay; parser bỏ dòng rỗng trước header, group theo `Ord
 
 **Response `data`:** `ready`, `errors`, `line_mappings[]`, `payload` (null nếu chưa ready). `payload` khớp shape create-order Printify (`external_id`, `line_items`, `address_to`, …).
 
+> `line_items[].product_id` và `line_mappings[].printify_product_id` là **string** Printify (thường hex ObjectId, vd `5bfd0b66a342bcc9b5563216`). Không được cast sang integer — PHP `(int)` sẽ cắt hex thành số ngắn và Printify reject. `variant_id` / `printify_variant_id` vẫn là integer.
+
 ### 6.7. Create Printify order (outbound)
 
 - **Đường dẫn**: `POST /orders/{order}/printify-create`
