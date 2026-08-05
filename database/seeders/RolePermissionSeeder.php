@@ -2,16 +2,52 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
-use Spatie\Permission\Models\Role;
+use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
+use Spatie\Permission\PermissionRegistrar;
 
 class RolePermissionSeeder extends Seeder
 {
-    /**
-     * Run the database seeds.
-     */
+    private const GUARD = 'api';
+
+    private const PERMISSIONS = [
+        'users.view',
+        'users.create',
+        'users.update',
+        'users.delete',
+        'roles.view',
+        'sales-groups.view',
+        'sales-groups.create',
+        'sales-groups.update',
+        'sales-groups.delete',
+        'orders.view',
+        'orders.create',
+        'orders.update',
+        'orders.delete',
+        'orders.import',
+        'orders.export',
+        'printify.catalog.view',
+        'printify.sync',
+        'printify.shop-readiness.confirm',
+        'printify.order.create',
+        'printify.reconcile',
+    ];
+
+    private const OBSOLETE_PERMISSIONS = [
+        'xem nhân viên', 'tạo nhân viên', 'sửa nhân viên', 'xóa nhân viên',
+        'xem vai trò', 'tạo vai trò', 'sửa vai trò', 'xóa vai trò',
+        'xem đơn hàng', 'tạo đơn hàng', 'sửa đơn hàng', 'xóa đơn hàng',
+        'nhập đơn hàng', 'xuất đơn hàng',
+    ];
+
+    private const ROLE_MIGRATIONS = [
+        'manager' => 'group_leader',
+        'sale' => 'seller',
+        'buyer' => 'seller',
+    ];
+
     public function up(): void
     {
         $this->run();
@@ -19,52 +55,81 @@ class RolePermissionSeeder extends Seeder
 
     public function run(): void
     {
-        // Reset cached roles and permissions
-        app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+        app()[PermissionRegistrar::class]->forgetCachedPermissions();
 
-        // 1. Tạo Quyền (tiếng Việt)
-        $permissions = [
-            'orders.import', 'printify.catalog.view', 'printify.sync',
-            'printify.shop-readiness.confirm', 'printify.order.create', 'printify.reconcile',
-            // Nhân viên
-            'xem nhân viên', 'tạo nhân viên', 'sửa nhân viên', 'xóa nhân viên',
-            // Vai trò
-            'xem vai trò', 'tạo vai trò', 'sửa vai trò', 'xóa vai trò',
-            // Đơn hàng
-            'xem đơn hàng', 'tạo đơn hàng', 'sửa đơn hàng', 'xóa đơn hàng',
-            'nhập đơn hàng', 'xuất đơn hàng',
-        ];
-
-        foreach ($permissions as $permission) {
-            Permission::firstOrCreate(['name' => $permission, 'guard_name' => 'api']);
+        foreach (self::PERMISSIONS as $name) {
+            Permission::firstOrCreate(['name' => $name, 'guard_name' => self::GUARD]);
         }
 
-        // 2. Tạo Vai trò
-        $roleAdmin   = Role::firstOrCreate(['name' => 'admin',   'guard_name' => 'api']);
-        $roleManager = Role::firstOrCreate(['name' => 'manager', 'guard_name' => 'api']);
-        $roleSale    = Role::firstOrCreate(['name' => 'sale',    'guard_name' => 'api']);
-        $roleBuyer   = Role::firstOrCreate(['name' => 'buyer',   'guard_name' => 'api']); // đổi từ support
+        $admin = Role::firstOrCreate(['name' => 'admin', 'guard_name' => self::GUARD]);
+        $seller = Role::firstOrCreate(['name' => 'seller', 'guard_name' => self::GUARD]);
+        $groupLeader = Role::firstOrCreate(['name' => 'group_leader', 'guard_name' => self::GUARD]);
 
-        // Admin: toàn quyền
-        $roleAdmin->syncPermissions(Permission::all());
+        $this->migrateLegacyRoleAssignments();
 
-        // Manager: quản lý nhân viên + đơn hàng (không xóa nhân viên, không sửa vai trò)
-        $roleManager->syncPermissions([
-            'orders.import', 'printify.catalog.view', 'printify.sync',
+        $admin->syncPermissions(Permission::where('guard_name', self::GUARD)->whereIn('name', self::PERMISSIONS)->get());
+
+        $groupLeader->syncPermissions([
+            'orders.view', 'orders.create', 'orders.update', 'orders.delete',
+            'orders.import', 'orders.export',
+            'printify.catalog.view', 'printify.sync',
             'printify.shop-readiness.confirm', 'printify.order.create', 'printify.reconcile',
-            'xem nhân viên', 'tạo nhân viên', 'sửa nhân viên',
-            'xem đơn hàng', 'tạo đơn hàng', 'sửa đơn hàng', 'xóa đơn hàng',
-            'nhập đơn hàng', 'xuất đơn hàng',
         ]);
 
-        // Sale: chỉ xem và thao tác đơn hàng
-        $roleSale->syncPermissions([
-            'xem đơn hàng', 'tạo đơn hàng', 'sửa đơn hàng',
+        $seller->syncPermissions([
+            'orders.view', 'orders.create', 'orders.update',
         ]);
 
-        // Buyer: chỉ xem
-        $roleBuyer->syncPermissions([
-            'xem nhân viên', 'xem đơn hàng',
-        ]);
+        foreach (array_keys(self::ROLE_MIGRATIONS) as $oldName) {
+            Role::where('name', $oldName)->where('guard_name', self::GUARD)->delete();
+        }
+
+        Permission::where('guard_name', self::GUARD)
+            ->whereIn('name', self::OBSOLETE_PERMISSIONS)
+            ->delete();
+
+        app()[PermissionRegistrar::class]->forgetCachedPermissions();
+    }
+
+    private function migrateLegacyRoleAssignments(): void
+    {
+        $roles = Role::where('guard_name', self::GUARD)
+            ->whereIn('name', array_merge(array_keys(self::ROLE_MIGRATIONS), ['admin', 'seller', 'group_leader']))
+            ->get()
+            ->keyBy('name');
+
+        foreach (self::ROLE_MIGRATIONS as $from => $to) {
+            $fromRole = $roles->get($from);
+            $toRole = $roles->get($to);
+            if (! $fromRole || ! $toRole) {
+                continue;
+            }
+
+            $assignments = DB::table('model_has_roles')
+                ->where('role_id', $fromRole->id)
+                ->get();
+
+            foreach ($assignments as $row) {
+                $exists = DB::table('model_has_roles')
+                    ->where('role_id', $toRole->id)
+                    ->where('model_type', $row->model_type)
+                    ->where('model_id', $row->model_id)
+                    ->exists();
+
+                if (! $exists) {
+                    DB::table('model_has_roles')->insert([
+                        'role_id' => $toRole->id,
+                        'model_type' => $row->model_type,
+                        'model_id' => $row->model_id,
+                    ]);
+                }
+
+                DB::table('model_has_roles')
+                    ->where('role_id', $fromRole->id)
+                    ->where('model_type', $row->model_type)
+                    ->where('model_id', $row->model_id)
+                    ->delete();
+            }
+        }
     }
 }

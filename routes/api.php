@@ -1,10 +1,10 @@
 <?php
 
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\UserController;
+use App\Http\Controllers\Api\SalesGroupController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\OrderImportController;
 use App\Http\Controllers\Api\PrintifyProductController;
@@ -17,12 +17,22 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
     Route::post('/logout', [AuthController::class, 'logout']);
 
-    // Roles
-    Route::get('/roles', [RoleController::class, 'index']);
+    Route::get('/roles', [RoleController::class, 'index'])->middleware('permission:roles.view');
 
-    // Users
-    Route::apiResource('users', UserController::class);
-    Route::patch('/users/{id}/status', [UserController::class, 'updateStatus']);
+    Route::get('/users', [UserController::class, 'index'])->middleware('permission:users.view');
+    Route::post('/users', [UserController::class, 'store'])->middleware('permission:users.create');
+    Route::get('/users/{id}', [UserController::class, 'show'])->middleware('permission:users.view');
+    Route::put('/users/{id}', [UserController::class, 'update'])->middleware('permission:users.update');
+    Route::patch('/users/{id}', [UserController::class, 'update'])->middleware('permission:users.update');
+    Route::delete('/users/{id}', [UserController::class, 'destroy'])->middleware('permission:users.delete');
+    Route::patch('/users/{id}/status', [UserController::class, 'updateStatus'])->middleware('permission:users.update');
+
+    Route::get('/sales-groups', [SalesGroupController::class, 'index'])->middleware('permission:sales-groups.view');
+    Route::post('/sales-groups', [SalesGroupController::class, 'store'])->middleware('permission:sales-groups.create');
+    Route::get('/sales-groups/{sales_group}', [SalesGroupController::class, 'show'])->middleware('permission:sales-groups.view');
+    Route::put('/sales-groups/{sales_group}', [SalesGroupController::class, 'update'])->middleware('permission:sales-groups.update');
+    Route::patch('/sales-groups/{sales_group}', [SalesGroupController::class, 'update'])->middleware('permission:sales-groups.update');
+    Route::delete('/sales-groups/{sales_group}', [SalesGroupController::class, 'destroy'])->middleware('permission:sales-groups.delete');
 
     // Orders - Phase 5
     Route::apiResource('orders', OrderController::class)->except(['store']);

@@ -1,0 +1,128 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\SalesGroup;
+use App\Models\User;
+use Database\Seeders\RolePermissionSeeder;
+use Illuminate\Foundation\Testing\DatabaseMigrations;
+use Laravel\Sanctum\Sanctum;
+use Spatie\Permission\Models\Role;
+use Tests\TestCase;
+
+class UserRoleGroupValidationTest extends TestCase
+{
+    use DatabaseMigrations;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->seed(RolePermissionSeeder::class);
+    }
+
+    private function actingAdmin(): User
+    {
+        $user = User::factory()->create();
+        $user->assignRole('admin');
+        Sanctum::actingAs($user);
+
+        return $user;
+    }
+
+    public function test_seller_without_sales_group_is_rejected(): void
+    {
+        $this->actingAdmin();
+
+        $this->postJson('/api/users', [
+            'name' => 'Seller One',
+            'email' => 'seller1@example.com',
+            'password' => 'password123',
+            'role' => 'seller',
+        ])->assertUnprocessable()
+            ->assertJsonPath('data.sales_group_id.0', 'The sales group id field is required.');
+    }
+
+    public function test_seller_with_sales_group_is_created(): void
+    {
+        $this->actingAdmin();
+
+        $group = SalesGroup::create([
+            'name' => 'eBay A',
+            'platform' => 'ebay',
+            'status' => true,
+        ]);
+
+        $this->postJson('/api/users', [
+            'name' => 'Seller One',
+            'email' => 'seller1@example.com',
+            'password' => 'password123',
+            'role' => 'seller',
+            'sales_group_id' => $group->id,
+        ])->assertCreated()
+            ->assertJsonPath('data.sales_group_id', $group->id)
+            ->assertJsonPath('data.roles.0.name', 'seller');
+    }
+
+    public function test_admin_user_clears_sales_group(): void
+    {
+        $this->actingAdmin();
+
+        $group = SalesGroup::create([
+            'name' => 'eBay A',
+            'platform' => 'ebay',
+            'status' => true,
+        ]);
+
+        $this->postJson('/api/users', [
+            'name' => 'Admin Two',
+            'email' => 'admin2@example.com',
+            'password' => 'password123',
+            'role' => 'admin',
+            'sales_group_id' => $group->id,
+        ])->assertCreated()
+            ->assertJsonPath('data.sales_group_id', null)
+            ->assertJsonPath('data.roles.0.name', 'admin');
+    }
+
+    public function test_seller_forbidden_on_users_and_roles(): void
+    {
+        $group = SalesGroup::create([
+            'name' => 'eBay A',
+            'platform' => 'ebay',
+            'status' => true,
+        ]);
+
+        $seller = User::factory()->create(['sales_group_id' => $group->id]);
+        $seller->assignRole('seller');
+        Sanctum::actingAs($seller);
+
+        $this->getJson('/api/users')->assertForbidden();
+        $this->getJson('/api/roles')->assertForbidden();
+    }
+
+    public function test_admin_can_list_roles(): void
+    {
+        $this->actingAdmin();
+
+        $this->getJson('/api/roles')->assertOk()
+            ->assertJsonPath('data.0.name', 'admin');
+
+        $names = collect($this->getJson('/api/roles')->json('data'))->pluck('name')->all();
+        $this->assertEqualsCanonicalizing(['admin', 'seller', 'group_leader'], $names);
+        $this->assertFalse(Role::whereIn('name', ['manager', 'sale', 'buyer'])->exists());
+    }
+
+    public function test_seeder_migrates_legacy_sale_role(): void
+    {
+        $user = User::factory()->create();
+        $legacy = Role::create(['name' => 'sale', 'guard_name' => 'api']);
+        $user->assignRole($legacy);
+
+        $this->seed(RolePermissionSeeder::class);
+
+        $user->refresh();
+        $this->assertTrue($user->hasRole('seller'));
+        $this->assertFalse($user->hasRole('sale'));
+        $this->assertFalse(Role::where('name', 'sale')->exists());
+    }
+}

@@ -111,16 +111,18 @@ Trạng thái tài khoản sai mật khẩu hoặc bị vô hiệu hóa (`status
 
 ### 2.3. Lấy Danh sách Vai trò (List Roles)
 
-- Lấy các danh sách role dùng cho việc hiển thị dropdown phân quyền (ví dụ khi Admin/Quản lý tạo Nhân sự mới).
+- Lấy danh sách role dùng cho dropdown phân quyền khi Admin tạo nhân sự.
+- Roles hiện tại: `admin`, `seller`, `group_leader`.
+- Yêu cầu permission: `roles.view` (chỉ admin được seed quyền này).
 
 * **Đường dẫn**: `GET /roles`
-* **Yêu cầu Xác thực**: Có (Bearer Token)
+* **Yêu cầu Xác thực**: Có (Bearer Token) + `roles.view`
 
 **Response (200 OK):**
 
 ```json
 {
-    "success": true,
+    "status": "success",
     "message": "Lấy danh sách vai trò thành công",
     "data": [
         {
@@ -130,17 +132,12 @@ Trạng thái tài khoản sai mật khẩu hoặc bị vô hiệu hóa (`status
         },
         {
             "id": 2,
-            "name": "manager",
+            "name": "seller",
             "permissions": [...]
         },
         {
             "id": 3,
-            "name": "sale",
-            "permissions": [...]
-        },
-        {
-            "id": 4,
-            "name": "support",
+            "name": "group_leader",
             "permissions": [...]
         }
     ]
@@ -180,47 +177,53 @@ Trạng thái tài khoản sai mật khẩu hoặc bị vô hiệu hóa (`status
 ## 3. Quản lý Nhân sự (Users)
 
 - Giao tiếp bằng Auth Bearer Token. Mã nhân viên được backend tự động khởi tạo.
+- Permissions: `users.view` | `users.create` | `users.update` | `users.delete` (chỉ admin được seed).
+- `seller` / `group_leader` **bắt buộc** `sales_group_id`. `admin` **không** gắn nhóm (backend clear `sales_group_id` nếu gửi kèm).
 
 ### 3.1. Danh sách Nhân viên
 
 - **Đường dẫn**: `GET /users`
-- **Query Params**: `search={keyword}`, `status={0/1}`, `role={admin/sale/...}`, `page={1}`, `per_page={15}`
-- **Response**: Trả về Paginated JSON.
+- **Query Params**: `search={keyword}`, `status={0/1}`, `role={admin|seller|group_leader}`, `sales_group_id={id}`, `page={1}`, `per_page={15}`
+- **Response**: Paginated JSON; mỗi user kèm `roles` và `salesGroup`.
 
 ### 3.2. Tạo Nhân viên
 
 - **Đường dẫn**: `POST /users`
-- **Yêu cầu Body JSON** (ví dụ chuẩn Payload từ FE):
+- **Permission**: `users.create`
+- **Yêu cầu Body JSON**:
 
 ```json
 {
     "name": "Yến",
     "password": "12345678",
-    "role": "",
+    "role": "seller",
+    "sales_group_id": 1,
     "email": "yen@gmail.com",
     "phone": "09796643194",
     "avatar": "https://api.dicebear.com/7.x/notionists/svg?seed=Bob&backgroundColor=c0aede"
 }
 ```
 
-_Lưu ý: Không cần gửi `employee_code` (hệ thống tự code). Trường `role` truyền text (vd: `"admin"`, `"sale"` hoặc rỗng `""`)._
+_Lưu ý: Không gửi `employee_code` (hệ thống tự sinh). `role` ∈ `admin` | `seller` | `group_leader`. Seller/leader thiếu `sales_group_id` → 422._
 
 ### 3.3. Sửa Nhân viên
 
-- **Đường dẫn**: `PUT /users/{id}`
-- **Yêu cầu Body JSON tương tự Tạo** (Chỉ cập nhật những field được submit lên)
+- **Đường dẫn**: `PUT /users/{id}` (hoặc `PATCH`)
+- **Permission**: `users.update`
 
 ```json
 {
     "name": "Yến Updated",
     "avatar": "https://api.dicebear.com/.../new",
-    "role": "manager"
+    "role": "group_leader",
+    "sales_group_id": 2
 }
 ```
 
 ### 3.4. Khoá/Mở khoá Nhân viên
 
 - **Đường dẫn**: `PATCH /users/{id}/status`
+- **Permission**: `users.update`
 - **Yêu cầu Body JSON**:
 
 ```json
@@ -231,7 +234,39 @@ _Lưu ý: Không cần gửi `employee_code` (hệ thống tự code). Trường
 
 _(Lưu ý: 1 = Active, 0 = Banned)_
 
-- **Đường dẫn**: `DELETE /users/{id}`
+- **Đường dẫn**: `DELETE /users/{id}` — permission `users.delete` (không xoá được tài khoản `admin`)
+
+---
+
+## 3b. Nhóm bán hàng (Sales Groups)
+
+Nhóm vận hành theo sàn (`ebay` | `tiktok` | `amazon`). Chỉ admin (permissions `sales-groups.*`).
+
+### 3b.1. Danh sách
+
+- **Đường dẫn**: `GET /sales-groups`
+- **Query**: `platform`, `status`, `search`, `per_page`
+- **Permission**: `sales-groups.view`
+
+### 3b.2. Tạo
+
+- **Đường dẫn**: `POST /sales-groups`
+- **Permission**: `sales-groups.create`
+
+```json
+{
+    "name": "eBay Team A",
+    "platform": "ebay",
+    "code": "EBAY-A",
+    "status": true
+}
+```
+
+### 3b.3. Chi tiết / Sửa / Xoá
+
+- `GET /sales-groups/{id}` — `sales-groups.view` (kèm `users_count` + danh sách member)
+- `PUT|PATCH /sales-groups/{id}` — `sales-groups.update`
+- `DELETE /sales-groups/{id}` — `sales-groups.delete` (422 nếu còn thành viên)
 
 ---
 
