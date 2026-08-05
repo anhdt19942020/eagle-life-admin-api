@@ -168,4 +168,51 @@ class PrintifySyncTest extends TestCase
             $lock->release();
         }
     }
+
+    public function test_sync_product_upserts_one_product_and_variants(): void
+    {
+        PrintifyShop::create(['printify_shop_id' => 101, 'title' => 'Primary']);
+        config()->set('services.printify.token', 'test-pat');
+        config()->set('services.printify.base_url', 'https://printify.test/v1');
+        Http::fake([
+            'printify.test/v1/shops/101/products/abc123.json' => Http::response([
+                'id' => 'abc123',
+                'title' => 'Placeholder Tee',
+                'visible' => true,
+                'blueprint_id' => 5,
+                'print_provider_id' => 9,
+                'variants' => [
+                    ['id' => 1, 'sku' => 'DEF-SKU-1', 'title' => 'S', 'is_enabled' => true, 'price' => 1999],
+                ],
+            ]),
+        ]);
+
+        $product = app(PrintifySyncService::class)->syncProduct(101, 'abc123');
+
+        $this->assertSame('abc123', $product->printify_product_id);
+        $this->assertSame('Placeholder Tee', $product->title);
+        $this->assertCount(1, $product->variants);
+        $this->assertSame('DEF-SKU-1', $product->variants->first()->sku);
+    }
+
+    public function test_sync_products_respects_max_products(): void
+    {
+        PrintifyShop::create(['printify_shop_id' => 101, 'title' => 'Primary']);
+        config()->set('services.printify.token', 'test-pat');
+        config()->set('services.printify.base_url', 'https://printify.test/v1');
+        Http::fake([
+            'printify.test/v1/shops/101/products.json*' => Http::response([
+                'data' => [
+                    ['id' => 'p1', 'title' => 'One', 'variants' => [['id' => 1, 'sku' => 'A', 'is_enabled' => true]]],
+                    ['id' => 'p2', 'title' => 'Two', 'variants' => [['id' => 2, 'sku' => 'B', 'is_enabled' => true]]],
+                ],
+                'last_page' => 1,
+            ]),
+        ]);
+
+        $count = app(PrintifySyncService::class)->syncProducts(101, 1, 1);
+
+        $this->assertSame(1, $count);
+        $this->assertSame(1, \App\Models\PrintifyProduct::count());
+    }
 }

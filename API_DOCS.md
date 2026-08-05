@@ -600,7 +600,7 @@ Luồng (as implemented):
 | Artisan command | Mô tả |
 | --- | --- |
 | `php artisan printify:sync-shops` | Sync shops |
-| `php artisan printify:sync-products {--shop-id=} {--limit-pages=}` | Sync products |
+| `php artisan printify:sync-products {--shop-id=} {--product-id=} {--limit-pages=} {--max-products=}` | Sync products. Prefer `--product-id=` (1 product) hoặc `--max-products=1` khi chỉ cần seed default SKU — tránh full catalog shop lớn. |
 | `php artisan printify:sync-orders {--shop-id=} {--limit-pages=}` | Sync orders inbound |
 | `php artisan printify:sync-uploads {--limit-pages=}` | Sync uploads |
 

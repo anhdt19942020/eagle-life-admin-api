@@ -41,25 +41,65 @@ class PrintifySyncService
         });
     }
 
-    public function syncProducts(int $remoteShopId, ?int $limitPages = null): int
+    public function syncProducts(int $remoteShopId, ?int $limitPages = null, ?int $maxProducts = null): int
     {
-        return $this->accountLocked(fn () => $this->locked($remoteShopId, function (PrintifyShop $shop) use ($remoteShopId, $limitPages): int {
+        return $this->accountLocked(fn () => $this->locked($remoteShopId, function (PrintifyShop $shop) use ($remoteShopId, $limitPages, $maxProducts): int {
             $pages = $this->pages("/shops/{$remoteShopId}/products.json", $limitPages);
+            $synced = 0;
             foreach ($pages['items'] as $product) {
-                $local = PrintifyProduct::updateOrCreate(
-                    ['printify_shop_id' => $shop->id, 'printify_product_id' => (string) $product['id']],
-                    ['title' => $product['title'], 'status' => $product['visible'] ?? null, 'blueprint_id' => (string) ($product['blueprint_id'] ?? ''), 'print_provider_id' => (string) ($product['print_provider_id'] ?? ''), 'synced_at' => now()],
-                );
-                foreach ($product['variants'] ?? [] as $variant) {
-                    $local->variants()->updateOrCreate(
-                        ['printify_variant_id' => (string) $variant['id']],
-                        ['sku' => $variant['sku'] ?? null, 'title' => $variant['title'] ?? null, 'is_enabled' => $variant['is_enabled'] ?? true, 'price' => isset($variant['price']) ? $variant['price'] / 100 : null],
-                    );
+                $this->upsertProduct($shop, $product);
+                $synced++;
+                if ($maxProducts !== null && $synced >= $maxProducts) {
+                    break;
                 }
             }
 
-            return count($pages['items']);
+            return $synced;
         }));
+    }
+
+    /**
+     * Sync a single Printify product (+ variants) into the local catalog.
+     * Prefer this for setting shop default_sku without pulling the full shop catalog.
+     */
+    public function syncProduct(int $remoteShopId, string $remoteProductId): PrintifyProduct
+    {
+        return $this->accountLocked(fn () => $this->locked($remoteShopId, function (PrintifyShop $shop) use ($remoteShopId, $remoteProductId): PrintifyProduct {
+            $product = $this->client->get("/shops/{$remoteShopId}/products/{$remoteProductId}.json");
+            if (! is_array($product) || ! isset($product['id'])) {
+                throw new RuntimeException("Printify product [{$remoteProductId}] not found for shop {$remoteShopId}.");
+            }
+
+            return $this->upsertProduct($shop, $product);
+        }));
+    }
+
+    private function upsertProduct(PrintifyShop $shop, array $product): PrintifyProduct
+    {
+        $local = PrintifyProduct::updateOrCreate(
+            ['printify_shop_id' => $shop->id, 'printify_product_id' => (string) $product['id']],
+            [
+                'title' => $product['title'] ?? null,
+                'status' => $product['visible'] ?? null,
+                'blueprint_id' => (string) ($product['blueprint_id'] ?? ''),
+                'print_provider_id' => (string) ($product['print_provider_id'] ?? ''),
+                'synced_at' => now(),
+            ],
+        );
+
+        foreach ($product['variants'] ?? [] as $variant) {
+            $local->variants()->updateOrCreate(
+                ['printify_variant_id' => (string) $variant['id']],
+                [
+                    'sku' => $variant['sku'] ?? null,
+                    'title' => $variant['title'] ?? null,
+                    'is_enabled' => $variant['is_enabled'] ?? true,
+                    'price' => isset($variant['price']) ? $variant['price'] / 100 : null,
+                ],
+            );
+        }
+
+        return $local->load('variants');
     }
 
     public function syncOrders(int $remoteShopId, ?int $limitPages = null): int
