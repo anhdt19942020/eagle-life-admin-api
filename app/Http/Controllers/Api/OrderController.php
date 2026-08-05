@@ -16,6 +16,7 @@ class OrderController extends Controller
         $query = Order::with([
             'buyer:id,name,employee_code',
             'seller:id,name,employee_code',
+            'lineItems:id,order_id,title',
         ]);
 
         if ($request->filled('search')) {

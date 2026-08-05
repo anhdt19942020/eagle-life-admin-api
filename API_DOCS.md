@@ -291,7 +291,7 @@ Nhóm vận hành theo sàn (`ebay` | `tiktok` | `amazon`). Chỉ admin (permiss
 | `page`        | Trang                                           | `page=1`                 |
 | `per_page`    | Số dòng/trang (mặc định 15)                     | `per_page=20`            |
 
-**Response:** envelope `{ status, message, data }` với `data` là Laravel paginator (`data`, `links`, `meta`). Mỗi item gồm `ebay_order_id`, `ebay_order_number`, `printify_order_id`, `ebay_created_at`, nested `buyer` / `seller` (`id`, `name`, `employee_code`).
+**Response:** envelope `{ status, message, data }` với `data` là Laravel paginator (`data`, `links`, `meta`). Mỗi item gồm `ebay_order_id`, `ebay_order_number`, `printify_order_id`, `ebay_created_at`, nested `buyer` / `seller` (`id`, `name`, `employee_code`) và `line_items` chỉ chứa `id`, `order_id`, `title` để hiển thị thông tin sản phẩm trong danh sách.
 
 ### 4.2. Chi tiết Đơn hàng
 

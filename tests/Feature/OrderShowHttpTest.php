@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use App\Models\Order;
+use App\Models\OrderLineItem;
 use App\Services\OrderImportService;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Http\UploadedFile;
@@ -13,6 +15,29 @@ use Tests\TestCase;
 class OrderShowHttpTest extends TestCase
 {
     use DatabaseMigrations;
+
+    public function test_order_index_includes_line_item_titles_for_the_orders_table(): void
+    {
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        $order = Order::create([
+            'ebay_order_id' => '13-14975-00011',
+            'ebay_order_number' => '13-14975-00011',
+            'ebay_created_at' => '2026-08-02 12:00:00',
+        ]);
+        OrderLineItem::create([
+            'order_id' => $order->id,
+            'item_number' => '123',
+            'title' => 'Long product title for the orders list',
+            'quantity' => 1,
+        ]);
+
+        $this->getJson('/api/orders')
+            ->assertOk()
+            ->assertJsonPath('status', 'success')
+            ->assertJsonPath('data.data.0.line_items.0.title', 'Long product title for the orders list');
+    }
 
     public function test_order_show_includes_fulfillment_address_line_items_and_export_rows(): void
     {
