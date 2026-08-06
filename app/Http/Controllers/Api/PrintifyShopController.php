@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PrintifyShopResource;
+use App\Models\PrintifyAccount;
 use App\Models\PrintifyProductVariant;
 use App\Models\PrintifyShop;
 use App\Services\Printify\PrintifySyncService;
@@ -23,7 +24,7 @@ class PrintifyShopController extends Controller
             'account_id' => ['sometimes', 'integer', 'exists:printify_accounts,id'],
         ]);
 
-        $query = PrintifyShop::query()->orderBy('title');
+        $query = PrintifyShop::query()->with('account')->orderBy('title');
 
         // Default management list: active shops (includes closed).
         $activeOnly = $request->has('active_only')
@@ -42,27 +43,55 @@ class PrintifyShopController extends Controller
             $query->where('printify_account_id', $request->integer('account_id'));
         }
 
+        $user = $request->user();
+        if (! $user->hasRole('admin')) {
+            if ($user->printify_shop_id === null) {
+                $query->whereRaw('0 = 1');
+            } else {
+                $query->where('id', $user->printify_shop_id);
+            }
+        }
+
         $perPage = min(max($request->integer('per_page', 15), 1), 1000);
 
         return $this->success(PrintifyShopResource::collection($query->paginate($perPage)));
     }
 
-    public function sync(PrintifySyncService $sync)
+    public function sync(Request $request, PrintifySyncService $sync)
     {
+        $validated = $request->validate([
+            'account_id' => ['required', 'integer', 'exists:printify_accounts,id'],
+        ]);
+
+        $account = PrintifyAccount::query()
+            ->whereKey($validated['account_id'])
+            ->where('is_active', true)
+            ->first();
+
+        if ($account === null) {
+            return $this->error(
+                'Printify account is inactive or missing.',
+                422,
+                ['code' => 'printify_account_inactive']
+            );
+        }
+
         try {
-            $count = $sync->syncShops();
+            $count = $sync->syncShops($account);
         } catch (RuntimeException $exception) {
             return $this->error($exception->getMessage(), 409);
         }
 
         return $this->success(
-            ['synced' => $count],
+            ['synced' => $count, 'account_id' => $account->id],
             "Đã sync {$count} shop từ Printify (upsert theo printify_shop_id, không tạo trùng)."
         );
     }
 
     public function confirmManualApproval(Request $request, PrintifyShop $shop)
     {
+        $this->authorize('manage', $shop);
+
         $shop->update([
             'manual_approval_confirmed_by' => $request->user()->id,
             'manual_approval_confirmed_at' => now(),
@@ -73,6 +102,8 @@ class PrintifyShopController extends Controller
 
     public function open(Request $request, PrintifyShop $shop)
     {
+        $this->authorize('manage', $shop);
+
         $shop->setOpenState(true, $request->user()->id);
 
         return $this->success(
@@ -83,6 +114,8 @@ class PrintifyShopController extends Controller
 
     public function close(Request $request, PrintifyShop $shop)
     {
+        $this->authorize('manage', $shop);
+
         $shop->setOpenState(false, $request->user()->id);
 
         return $this->success(
@@ -93,6 +126,8 @@ class PrintifyShopController extends Controller
 
     public function updateDefaultSku(Request $request, PrintifyShop $shop)
     {
+        $this->authorize('manage', $shop);
+
         $validated = $request->validate([
             'default_sku' => ['nullable', 'string', 'max:255'],
         ]);

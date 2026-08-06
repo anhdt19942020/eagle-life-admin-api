@@ -12,6 +12,11 @@ class PrintifyShopResource extends JsonResource
         return [
             'id' => $this->id,
             'printify_account_id' => $this->printify_account_id,
+            'account' => $this->whenLoaded('account', fn () => $this->account === null ? null : [
+                'id' => $this->account->id,
+                'email' => $this->account->email,
+                'is_active' => $this->account->is_active,
+            ]),
             'printify_shop_id' => $this->printify_shop_id,
             'title' => $this->title,
             'default_sku' => $this->default_sku,

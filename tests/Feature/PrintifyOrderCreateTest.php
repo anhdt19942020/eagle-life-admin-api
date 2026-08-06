@@ -16,32 +16,55 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
+use Tests\Support\InteractsWithPrintifyAccounts;
 use Tests\TestCase;
 
 class PrintifyOrderCreateTest extends TestCase
 {
     use DatabaseMigrations;
+    use InteractsWithPrintifyAccounts;
 
     private function readyShop(): PrintifyShop
     {
-        return PrintifyShop::create([
+        $account = $this->makePrintifyAccount();
+
+        return $this->makePrintifyShop($account, [
             'printify_shop_id' => 101,
             'title' => 'Primary',
-            'is_active' => true,
             'default_sku' => 'TEST-DEFAULT-SKU',
             'orders_sync_state' => 'complete',
             'manual_approval_confirmed_at' => now(),
         ]);
     }
 
-    private function actingCreator(): User
+    private function actingAdminCreator(): User
     {
         $user = User::factory()->create();
+        Role::findOrCreate('admin', 'api');
         Permission::findOrCreate('printify.order.create', 'api');
+        $user->assignRole('admin');
         $user->givePermissionTo('printify.order.create');
         Sanctum::actingAs($user);
 
         return $user;
+    }
+
+    private function actingSellerWithShop(PrintifyShop $shop): User
+    {
+        $user = User::factory()->create(['printify_shop_id' => $shop->id]);
+        Role::findOrCreate('seller', 'api');
+        Permission::findOrCreate('printify.order.create', 'api');
+        $user->assignRole('seller');
+        $user->givePermissionTo('printify.order.create');
+        Sanctum::actingAs($user);
+
+        return $user;
+    }
+
+    private function actingCreator(): User
+    {
+        return $this->actingAdminCreator();
     }
 
     private function importOrderWithSku(string $sku): Order
@@ -78,10 +101,7 @@ class PrintifyOrderCreateTest extends TestCase
 
     private function configurePrintifyHttp(): void
     {
-        config()->set('services.printify.token', 'test-pat');
-        config()->set('services.printify.base_url', 'https://printify.test/v1');
-        config()->set('services.printify.retry_times', 0);
-        config()->set('services.printify.retry_sleep_ms', 0);
+        $this->configurePrintifyHttpBase();
     }
 
     public function test_create_posts_to_printify_and_persists_local_order(): void
@@ -175,5 +195,75 @@ class PrintifyOrderCreateTest extends TestCase
 
         $this->postJson("/api/orders/{$order->id}/printify-create", ['shop_id' => $shop->id])
             ->assertForbidden();
+    }
+
+    public function test_seller_without_assignment_gets_stable_code(): void
+    {
+        $shop = $this->readyShop();
+        $this->seedMappedVariant($shop);
+        $order = $this->importOrderWithSku('SKU-M');
+
+        $user = User::factory()->create();
+        Role::findOrCreate('seller', 'api');
+        Permission::findOrCreate('printify.order.create', 'api');
+        $user->assignRole('seller');
+        $user->givePermissionTo('printify.order.create');
+        Sanctum::actingAs($user);
+
+        Http::fake();
+
+        $this->postJson("/api/orders/{$order->id}/printify-create")
+            ->assertStatus(422)
+            ->assertJsonPath('data.code', 'printify_shop_assignment_required');
+
+        Http::assertNothingSent();
+    }
+
+    public function test_seller_spoofed_shop_id_is_rejected(): void
+    {
+        $assigned = $this->readyShop();
+        $otherAccount = $this->makePrintifyAccount('other@example.com', 'other-pat');
+        $otherShop = $this->makePrintifyShop($otherAccount, [
+            'printify_shop_id' => 202,
+            'title' => 'Other',
+            'default_sku' => 'TEST-DEFAULT-SKU',
+            'orders_sync_state' => 'complete',
+            'manual_approval_confirmed_at' => now(),
+        ]);
+        $this->seedMappedVariant($assigned);
+        $order = $this->importOrderWithSku('SKU-M');
+        $this->actingSellerWithShop($assigned);
+
+        Http::fake();
+
+        $this->postJson("/api/orders/{$order->id}/printify-create", ['shop_id' => $otherShop->id])
+            ->assertStatus(422)
+            ->assertJsonPath('data.code', 'printify_shop_spoof_rejected');
+
+        Http::assertNothingSent();
+    }
+
+    public function test_seller_uses_assigned_shop_without_shop_id(): void
+    {
+        $this->configurePrintifyHttp();
+        $shop = $this->readyShop();
+        $remoteProductId = $this->seedMappedVariant($shop);
+        $order = $this->importOrderWithSku('SKU-M');
+        $this->actingSellerWithShop($shop);
+
+        Http::fake([
+            'printify.test/v1/shops/101/orders.json' => Http::response([
+                'id' => 'pog-seller',
+                'status' => 'pending',
+            ], 200),
+        ]);
+
+        $this->postJson("/api/orders/{$order->id}/printify-create")
+            ->assertOk()
+            ->assertJsonPath('data.created', true)
+            ->assertJsonPath('data.printify_order.printify_order_id', 'pog-seller');
+
+        Http::assertSent(fn ($request) => $request->url() === 'https://printify.test/v1/shops/101/orders.json'
+            && ($request['line_items'][0]['product_id'] ?? null) === $remoteProductId);
     }
 }

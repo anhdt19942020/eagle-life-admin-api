@@ -11,19 +11,21 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
+use Tests\Support\InteractsWithPrintifyAccounts;
 use Tests\TestCase;
 
 class PrintifyShopDefaultSkuTest extends TestCase
 {
     use DatabaseMigrations;
+    use InteractsWithPrintifyAccounts;
 
     private function shopWithVariant(string $sku = 'SHOP-DEFAULT', int $variantCount = 1): PrintifyShop
     {
-        $shop = PrintifyShop::create([
+        $account = $this->makePrintifyAccount();
+        $shop = $this->makePrintifyShop($account, [
             'printify_shop_id' => 501,
             'title' => 'SKU Shop',
-            'is_active' => true,
-            'is_open' => true,
             'orders_sync_state' => 'complete',
             'manual_approval_confirmed_at' => now(),
         ]);
@@ -50,6 +52,8 @@ class PrintifyShopDefaultSkuTest extends TestCase
     private function actingConfirm(): User
     {
         $user = User::factory()->create();
+        Role::findOrCreate('admin', 'api');
+        $user->assignRole('admin');
         Permission::findOrCreate('printify.shop-readiness.confirm', 'api');
         $user->givePermissionTo('printify.shop-readiness.confirm');
         Sanctum::actingAs($user);

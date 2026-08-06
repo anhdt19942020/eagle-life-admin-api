@@ -8,6 +8,7 @@ use App\Models\PrintifyProduct;
 use App\Models\PrintifyShop;
 use App\Models\PrintifyUpload;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use RuntimeException;
 use Throwable;
 
@@ -18,39 +19,49 @@ class PrintifySyncService
     public function syncShops(PrintifyAccount $account): int
     {
         return $this->accountLocked($account, function () use ($account): int {
-            $client = $this->factory->for($account);
-            $remote = $client->get('/shops.json');
-            $ids = collect($remote)->pluck('id')->map(fn ($id) => (int) $id);
+            return DB::transaction(function () use ($account): int {
+                $client = $this->factory->for($account);
+                $remote = $client->get('/shops.json');
+                $ids = collect($remote)->pluck('id')->map(fn ($id) => (int) $id);
 
-            PrintifyShop::where('printify_account_id', $account->id)
-                ->whereNotIn('printify_shop_id', $ids)
-                ->update(['is_active' => false]);
-
-            return collect($remote)
-                ->reject(fn (array $shop) => $this->belongsToAnotherAccount((int) $shop['id'], $account))
-                ->map(function (array $shop) use ($account) {
+                foreach ($remote as $shop) {
                     $remoteId = (int) $shop['id'];
-                    $local = PrintifyShop::where('printify_shop_id', $remoteId)->first();
-                    $reactivated = $local === null || ! $local->is_active;
-                    $attributes = [
-                        'printify_account_id' => $account->id,
-                        'title' => $shop['title'],
-                        'is_active' => true,
-                        'synced_at' => now(),
-                    ];
-                    if ($reactivated) {
-                        $attributes += [
-                            'orders_sync_state' => 'pending',
-                            'orders_sync_completed_at' => null,
-                            'orders_sync_watermark' => null,
-                            'manual_approval_confirmed_by' => null,
-                            'manual_approval_confirmed_at' => null,
-                        ];
+                    if ($this->belongsToAnotherAccount($remoteId, $account)) {
+                        throw new RuntimeException(
+                            "Printify shop {$remoteId} already belongs to another account; sync aborted."
+                        );
                     }
+                }
 
-                    // Unique on printify_shop_id — upsert, never insert duplicate.
-                    return PrintifyShop::updateOrCreate(['printify_shop_id' => $remoteId], $attributes);
-                })->count();
+                PrintifyShop::where('printify_account_id', $account->id)
+                    ->whereNotIn('printify_shop_id', $ids)
+                    ->update(['is_active' => false]);
+
+                return collect($remote)
+                    ->map(function (array $shop) use ($account) {
+                        $remoteId = (int) $shop['id'];
+                        $local = PrintifyShop::where('printify_shop_id', $remoteId)->first();
+                        $reactivated = $local === null || ! $local->is_active;
+                        $attributes = [
+                            'printify_account_id' => $account->id,
+                            'title' => $shop['title'],
+                            'is_active' => true,
+                            'synced_at' => now(),
+                        ];
+                        if ($reactivated) {
+                            $attributes += [
+                                'orders_sync_state' => 'pending',
+                                'orders_sync_completed_at' => null,
+                                'orders_sync_watermark' => null,
+                                'manual_approval_confirmed_by' => null,
+                                'manual_approval_confirmed_at' => null,
+                            ];
+                        }
+
+                        // Unique on printify_shop_id — upsert, never insert duplicate.
+                        return PrintifyShop::updateOrCreate(['printify_shop_id' => $remoteId], $attributes);
+                    })->count();
+            });
         });
     }
 
@@ -205,7 +216,10 @@ class PrintifySyncService
 
     private function locked(PrintifyAccount $account, int $remoteShopId, callable $callback): mixed
     {
-        $lock = Cache::lock("printify:sync:shop:{$remoteShopId}", (int) config('services.printify.sync_lock_seconds'));
+        $lock = Cache::lock(
+            "printify:sync:shop:{$account->id}:{$remoteShopId}",
+            (int) config('services.printify.sync_lock_seconds')
+        );
         if (! $lock->get()) {
             throw new RuntimeException('A sync is already running for this shop.');
         }

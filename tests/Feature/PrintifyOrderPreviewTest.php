@@ -14,18 +14,22 @@ use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Http\UploadedFile;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
+use Tests\Support\InteractsWithPrintifyAccounts;
 use Tests\TestCase;
 
 class PrintifyOrderPreviewTest extends TestCase
 {
     use DatabaseMigrations;
+    use InteractsWithPrintifyAccounts;
 
     private function readyShop(): PrintifyShop
     {
-        return PrintifyShop::create([
+        $account = $this->makePrintifyAccount();
+
+        return $this->makePrintifyShop($account, [
             'printify_shop_id' => 101,
             'title' => 'Primary',
-            'is_active' => true,
             'default_sku' => 'TEST-DEFAULT-SKU',
             'orders_sync_state' => 'complete',
             'manual_approval_confirmed_at' => now(),
@@ -35,7 +39,9 @@ class PrintifyOrderPreviewTest extends TestCase
     private function actingCreator(): User
     {
         $user = User::factory()->create();
+        Role::findOrCreate('admin', 'api');
         Permission::findOrCreate('printify.order.create', 'api');
+        $user->assignRole('admin');
         $user->givePermissionTo('printify.order.create');
         Sanctum::actingAs($user);
 
@@ -226,11 +232,10 @@ class PrintifyOrderPreviewTest extends TestCase
     public function test_preview_rejects_shop_missing_default_sku(): void
     {
         $this->actingCreator();
-        $shop = PrintifyShop::create([
+        $account = $this->makePrintifyAccount();
+        $shop = $this->makePrintifyShop($account, [
             'printify_shop_id' => 101,
             'title' => 'No default',
-            'is_active' => true,
-            'is_open' => true,
             'orders_sync_state' => 'complete',
             'manual_approval_confirmed_at' => now(),
             'default_sku' => null,
@@ -248,10 +253,10 @@ class PrintifyOrderPreviewTest extends TestCase
     public function test_preview_rejects_closed_shop(): void
     {
         $this->actingCreator();
-        $shop = PrintifyShop::create([
+        $account = $this->makePrintifyAccount();
+        $shop = $this->makePrintifyShop($account, [
             'printify_shop_id' => 101,
             'title' => 'Closed',
-            'is_active' => true,
             'is_open' => false,
             'default_sku' => 'TEST-DEFAULT-SKU',
             'orders_sync_state' => 'complete',

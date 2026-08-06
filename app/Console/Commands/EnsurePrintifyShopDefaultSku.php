@@ -35,7 +35,7 @@ class EnsurePrintifyShopDefaultSku extends Command
             });
         }
 
-        $shops = $query->orderBy('title')->get();
+        $shops = $query->with('account')->orderBy('title')->get();
         if ($shops->isEmpty()) {
             $this->info('No shops to process.');
 
@@ -53,12 +53,18 @@ class EnsurePrintifyShopDefaultSku extends Command
                 continue;
             }
 
+            if ($shop->account === null || ! $shop->account->is_active) {
+                $this->warn("Shop {$shop->printify_shop_id} ({$shop->title}): skip — inactive or missing account");
+                $skipped++;
+                continue;
+            }
+
             try {
                 $sku = $this->pickUniqueEnabledSku($shop);
                 if ($sku === null && $seed) {
                     $this->warn("Shop {$shop->printify_shop_id} ({$shop->title}): no local SKU — seeding 1 product…");
                     if (! $dryRun) {
-                        $sync->syncProducts((int) $shop->printify_shop_id, 1, 1);
+                        $sync->syncProducts($shop->account, (int) $shop->printify_shop_id, 1, 1);
                         $shop->refresh();
                     }
                     $sku = $this->pickUniqueEnabledSku($shop);

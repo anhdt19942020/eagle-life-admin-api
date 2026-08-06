@@ -4,27 +4,30 @@
 
 namespace Tests\Feature;
 
-use App\Models\PrintifyShop;
 use App\Models\PrintifyOrder;
+use App\Models\PrintifyProduct;
+use App\Models\PrintifyShop;
 use App\Services\Printify\PrintifySyncService;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use RuntimeException;
+use Tests\Support\InteractsWithPrintifyAccounts;
 use Tests\TestCase;
 
 class PrintifySyncTest extends TestCase
 {
     use DatabaseMigrations;
+    use InteractsWithPrintifyAccounts;
 
     public function test_limited_sync_never_marks_shop_ready(): void
     {
-        $shop = PrintifyShop::create(['printify_shop_id' => 101, 'title' => 'Primary']);
-        config()->set('services.printify.token', 'test-pat');
-        config()->set('services.printify.base_url', 'https://printify.test/v1');
+        $account = $this->makePrintifyAccount();
+        $shop = $this->makePrintifyShop($account);
+        $this->configurePrintifyHttpBase();
         Http::fake(['printify.test/*' => Http::response(['data' => [], 'last_page' => 1])]);
 
-        app(PrintifySyncService::class)->syncOrders(101, 1);
+        app(PrintifySyncService::class)->syncOrders($account, 101, 1);
 
         $this->assertSame('incomplete', $shop->fresh()->orders_sync_state);
         $this->assertFalse($shop->fresh()->isReadyForCreation());
@@ -32,12 +35,12 @@ class PrintifySyncTest extends TestCase
 
     public function test_exhaustive_sync_marks_shop_complete_but_needs_manual_confirmation(): void
     {
-        $shop = PrintifyShop::create(['printify_shop_id' => 101, 'title' => 'Primary']);
-        config()->set('services.printify.token', 'test-pat');
-        config()->set('services.printify.base_url', 'https://printify.test/v1');
+        $account = $this->makePrintifyAccount();
+        $shop = $this->makePrintifyShop($account);
+        $this->configurePrintifyHttpBase();
         Http::fake(['printify.test/*' => Http::response(['data' => [], 'last_page' => 1])]);
 
-        app(PrintifySyncService::class)->syncOrders(101);
+        app(PrintifySyncService::class)->syncOrders($account, 101);
 
         $this->assertSame('complete', $shop->fresh()->orders_sync_state);
         $this->assertFalse($shop->fresh()->isReadyForCreation());
@@ -45,12 +48,16 @@ class PrintifySyncTest extends TestCase
 
     public function test_reactivated_shop_requires_a_new_exhaustive_sync_and_manual_confirmation(): void
     {
-        $shop = PrintifyShop::create(['printify_shop_id' => 101, 'title' => 'Primary', 'is_active' => false, 'orders_sync_state' => 'complete', 'manual_approval_confirmed_at' => now()]);
-        config()->set('services.printify.token', 'test-pat');
-        config()->set('services.printify.base_url', 'https://printify.test/v1');
+        $account = $this->makePrintifyAccount();
+        $shop = $this->makePrintifyShop($account, [
+            'is_active' => false,
+            'orders_sync_state' => 'complete',
+            'manual_approval_confirmed_at' => now(),
+        ]);
+        $this->configurePrintifyHttpBase();
         Http::fake(['printify.test/*' => Http::response([['id' => 101, 'title' => 'Primary']])]);
 
-        app(PrintifySyncService::class)->syncShops();
+        app(PrintifySyncService::class)->syncShops($account);
 
         $this->assertSame('pending', $shop->fresh()->orders_sync_state);
         $this->assertNull($shop->fresh()->manual_approval_confirmed_at);
@@ -58,14 +65,14 @@ class PrintifySyncTest extends TestCase
 
     public function test_same_external_order_in_two_shops_is_marked_as_conflict(): void
     {
-        $first = PrintifyShop::create(['printify_shop_id' => 101, 'title' => 'First']);
+        $account = $this->makePrintifyAccount();
+        $first = $this->makePrintifyShop($account, ['printify_shop_id' => 101, 'title' => 'First']);
         PrintifyOrder::create(['printify_shop_id' => $first->id, 'printify_order_id' => 'existing', 'ebay_order_number' => '13-14975-00010']);
-        PrintifyShop::create(['printify_shop_id' => 102, 'title' => 'Second']);
-        config()->set('services.printify.token', 'test-pat');
-        config()->set('services.printify.base_url', 'https://printify.test/v1');
+        $this->makePrintifyShop($account, ['printify_shop_id' => 102, 'title' => 'Second']);
+        $this->configurePrintifyHttpBase();
         Http::fake(['printify.test/*' => Http::response(['data' => [['id' => 'new', 'external_id' => '13-14975-00010', 'status' => 'pending']], 'last_page' => 1])]);
 
-        app(PrintifySyncService::class)->syncOrders(102);
+        app(PrintifySyncService::class)->syncOrders($account, 102);
 
         $this->assertSame(2, PrintifyOrder::where('has_conflict', true)->count());
         $this->assertSame('conflict', PrintifyShop::where('printify_shop_id', 102)->value('orders_sync_state'));
@@ -73,14 +80,31 @@ class PrintifySyncTest extends TestCase
 
     public function test_account_lock_prevents_overlapping_order_syncs(): void
     {
-        PrintifyShop::create(['printify_shop_id' => 101, 'title' => 'Primary']);
-        $lock = Cache::lock('printify:sync:account', 60);
+        $account = $this->makePrintifyAccount();
+        $this->makePrintifyShop($account);
+        $lock = Cache::lock("printify:sync:account:{$account->id}", 60);
         $this->assertTrue($lock->get());
-        config()->set('services.printify.token', 'test-pat');
+        $this->configurePrintifyHttpBase();
 
         try {
             $this->expectException(RuntimeException::class);
-            app(PrintifySyncService::class)->syncOrders(101);
+            app(PrintifySyncService::class)->syncOrders($account, 101);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    public function test_shop_lock_is_account_scoped(): void
+    {
+        $account = $this->makePrintifyAccount();
+        $this->makePrintifyShop($account);
+        $lock = Cache::lock("printify:sync:shop:{$account->id}:101", 60);
+        $this->assertTrue($lock->get());
+        $this->configurePrintifyHttpBase();
+
+        try {
+            $this->expectException(RuntimeException::class);
+            app(PrintifySyncService::class)->syncOrders($account, 101);
         } finally {
             $lock->release();
         }
@@ -88,14 +112,19 @@ class PrintifySyncTest extends TestCase
 
     public function test_ready_shop_does_not_wait_on_other_shops_sync_state(): void
     {
-        $readyCandidate = PrintifyShop::create([
+        $account = $this->makePrintifyAccount();
+        $readyCandidate = $this->makePrintifyShop($account, [
             'printify_shop_id' => 101,
             'title' => 'First',
             'orders_sync_state' => 'complete',
             'manual_approval_confirmed_at' => now(),
             'default_sku' => 'READY-SKU',
         ]);
-        PrintifyShop::create(['printify_shop_id' => 102, 'title' => 'Second', 'orders_sync_state' => 'pending']);
+        $this->makePrintifyShop($account, [
+            'printify_shop_id' => 102,
+            'title' => 'Second',
+            'orders_sync_state' => 'pending',
+        ]);
 
         $this->assertTrue($readyCandidate->fresh()->isReadyForCreation());
         $this->assertFalse(PrintifyShop::where('printify_shop_id', 102)->first()->isReadyForCreation());
@@ -103,11 +132,9 @@ class PrintifySyncTest extends TestCase
 
     public function test_shop_without_default_sku_is_not_ready_for_creation(): void
     {
-        $shop = PrintifyShop::create([
-            'printify_shop_id' => 101,
+        $account = $this->makePrintifyAccount();
+        $shop = $this->makePrintifyShop($account, [
             'title' => 'No default',
-            'is_active' => true,
-            'is_open' => true,
             'orders_sync_state' => 'complete',
             'manual_approval_confirmed_at' => now(),
             'default_sku' => null,
@@ -118,10 +145,9 @@ class PrintifySyncTest extends TestCase
 
     public function test_closed_shop_is_not_ready_for_creation(): void
     {
-        $shop = PrintifyShop::create([
-            'printify_shop_id' => 101,
+        $account = $this->makePrintifyAccount();
+        $shop = $this->makePrintifyShop($account, [
             'title' => 'Closed',
-            'is_active' => true,
             'is_open' => false,
             'orders_sync_state' => 'complete',
             'manual_approval_confirmed_at' => now(),
@@ -132,13 +158,14 @@ class PrintifySyncTest extends TestCase
 
     public function test_account_lock_prevents_shop_sync_overlapping_order_sync(): void
     {
-        $lock = Cache::lock('printify:sync:account', 60);
+        $account = $this->makePrintifyAccount();
+        $lock = Cache::lock("printify:sync:account:{$account->id}", 60);
         $this->assertTrue($lock->get());
-        config()->set('services.printify.token', 'test-pat');
+        $this->configurePrintifyHttpBase();
 
         try {
             $this->expectException(RuntimeException::class);
-            app(PrintifySyncService::class)->syncShops();
+            app(PrintifySyncService::class)->syncShops($account);
         } finally {
             $lock->release();
         }
@@ -146,9 +173,8 @@ class PrintifySyncTest extends TestCase
 
     public function test_conflicted_order_blocks_an_otherwise_ready_shop(): void
     {
-        $shop = PrintifyShop::create([
-            'printify_shop_id' => 101,
-            'title' => 'Primary',
+        $account = $this->makePrintifyAccount();
+        $shop = $this->makePrintifyShop($account, [
             'orders_sync_state' => 'complete',
             'manual_approval_confirmed_at' => now(),
         ]);
@@ -163,14 +189,15 @@ class PrintifySyncTest extends TestCase
 
     public function test_account_lock_prevents_product_sync(): void
     {
-        PrintifyShop::create(['printify_shop_id' => 101, 'title' => 'Primary']);
-        $lock = Cache::lock('printify:sync:account', 60);
+        $account = $this->makePrintifyAccount();
+        $this->makePrintifyShop($account);
+        $lock = Cache::lock("printify:sync:account:{$account->id}", 60);
         $this->assertTrue($lock->get());
-        config()->set('services.printify.token', 'test-pat');
+        $this->configurePrintifyHttpBase();
 
         try {
             $this->expectException(RuntimeException::class);
-            app(PrintifySyncService::class)->syncProducts(101);
+            app(PrintifySyncService::class)->syncProducts($account, 101);
         } finally {
             $lock->release();
         }
@@ -178,13 +205,14 @@ class PrintifySyncTest extends TestCase
 
     public function test_account_lock_prevents_upload_sync(): void
     {
-        $lock = Cache::lock('printify:sync:account', 60);
+        $account = $this->makePrintifyAccount();
+        $lock = Cache::lock("printify:sync:account:{$account->id}", 60);
         $this->assertTrue($lock->get());
-        config()->set('services.printify.token', 'test-pat');
+        $this->configurePrintifyHttpBase();
 
         try {
             $this->expectException(RuntimeException::class);
-            app(PrintifySyncService::class)->syncUploads();
+            app(PrintifySyncService::class)->syncUploads($account);
         } finally {
             $lock->release();
         }
@@ -192,9 +220,9 @@ class PrintifySyncTest extends TestCase
 
     public function test_sync_product_upserts_one_product_and_variants(): void
     {
-        PrintifyShop::create(['printify_shop_id' => 101, 'title' => 'Primary']);
-        config()->set('services.printify.token', 'test-pat');
-        config()->set('services.printify.base_url', 'https://printify.test/v1');
+        $account = $this->makePrintifyAccount();
+        $this->makePrintifyShop($account);
+        $this->configurePrintifyHttpBase();
         Http::fake([
             'printify.test/v1/shops/101/products/abc123.json' => Http::response([
                 'id' => 'abc123',
@@ -208,7 +236,7 @@ class PrintifySyncTest extends TestCase
             ]),
         ]);
 
-        $product = app(PrintifySyncService::class)->syncProduct(101, 'abc123');
+        $product = app(PrintifySyncService::class)->syncProduct($account, 101, 'abc123');
 
         $this->assertSame('abc123', $product->printify_product_id);
         $this->assertSame('Placeholder Tee', $product->title);
@@ -218,9 +246,9 @@ class PrintifySyncTest extends TestCase
 
     public function test_sync_products_respects_max_products(): void
     {
-        PrintifyShop::create(['printify_shop_id' => 101, 'title' => 'Primary']);
-        config()->set('services.printify.token', 'test-pat');
-        config()->set('services.printify.base_url', 'https://printify.test/v1');
+        $account = $this->makePrintifyAccount();
+        $this->makePrintifyShop($account);
+        $this->configurePrintifyHttpBase();
         Http::fake([
             'printify.test/v1/shops/101/products.json*' => Http::response([
                 'data' => [
@@ -231,9 +259,35 @@ class PrintifySyncTest extends TestCase
             ]),
         ]);
 
-        $count = app(PrintifySyncService::class)->syncProducts(101, 1, 1);
+        $count = app(PrintifySyncService::class)->syncProducts($account, 101, 1, 1);
 
         $this->assertSame(1, $count);
-        $this->assertSame(1, \App\Models\PrintifyProduct::count());
+        $this->assertSame(1, PrintifyProduct::count());
+    }
+
+    public function test_cross_account_shop_sync_throws_instead_of_silent_skip(): void
+    {
+        $accountA = $this->makePrintifyAccount('a@example.com', 'token-a');
+        $accountB = $this->makePrintifyAccount('b@example.com', 'token-b');
+        $this->makePrintifyShop($accountB, ['printify_shop_id' => 101, 'title' => 'Owned by B']);
+        $this->configurePrintifyHttpBase();
+        Http::fake([
+            'printify.test/v1/shops.json' => Http::response([
+                ['id' => 101, 'title' => 'Hijack'],
+            ]),
+        ]);
+
+        try {
+            app(PrintifySyncService::class)->syncShops($accountA);
+            $this->fail('Expected RuntimeException was not thrown.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('another account', $e->getMessage());
+        }
+
+        $this->assertDatabaseHas('printify_shops', [
+            'printify_shop_id' => 101,
+            'printify_account_id' => $accountB->id,
+            'title' => 'Owned by B',
+        ]);
     }
 }

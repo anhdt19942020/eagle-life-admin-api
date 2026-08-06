@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\PrintifyShop;
 use App\Services\Printify\PrintifySyncService;
 use Illuminate\Console\Command;
+use Throwable;
 
 class SyncPrintifyProducts extends Command
 {
@@ -27,15 +28,22 @@ class SyncPrintifyProducts extends Command
                 return self::FAILURE;
             }
 
-            $product = $sync->syncProduct((int) $shopId, (string) $productId);
+            $shop = PrintifyShop::with('account')->where('printify_shop_id', (int) $shopId)->first();
+            if ($shop === null || $shop->account === null || ! $shop->account->is_active) {
+                $this->error("Shop {$shopId} is missing or its Printify account is inactive.");
+
+                return self::FAILURE;
+            }
+
+            $product = $sync->syncProduct($shop->account, (int) $shop->printify_shop_id, (string) $productId);
             $this->info("Synced product {$product->printify_product_id} ({$product->title}) with {$product->variants->count()} variants.");
 
             return self::SUCCESS;
         }
 
         $shops = $this->option('shop-id')
-            ? PrintifyShop::where('printify_shop_id', $this->option('shop-id'))->get()
-            : PrintifyShop::where('is_active', true)->get();
+            ? PrintifyShop::with('account')->where('printify_shop_id', $this->option('shop-id'))->get()
+            : PrintifyShop::with('account')->where('is_active', true)->orderBy('id')->get();
 
         $limitPages = $this->option('limit-pages') !== null && $this->option('limit-pages') !== ''
             ? (int) $this->option('limit-pages')
@@ -44,11 +52,27 @@ class SyncPrintifyProducts extends Command
             ? (int) $this->option('max-products')
             : null;
 
+        $failed = 0;
+        $skipped = 0;
+
         foreach ($shops as $shop) {
-            $count = $sync->syncProducts($shop->printify_shop_id, $limitPages, $maxProducts);
-            $this->info("Shop {$shop->printify_shop_id}: synced {$count} product(s).");
+            if ($shop->account === null || ! $shop->account->is_active) {
+                $skipped++;
+                $this->warn("Shop {$shop->printify_shop_id}: skipped (inactive or missing account).");
+                continue;
+            }
+
+            try {
+                $count = $sync->syncProducts($shop->account, (int) $shop->printify_shop_id, $limitPages, $maxProducts);
+                $this->info("Shop {$shop->printify_shop_id}: synced {$count} product(s).");
+            } catch (Throwable $exception) {
+                $failed++;
+                $this->error("Shop {$shop->printify_shop_id}: {$exception->getMessage()}");
+            }
         }
 
-        return self::SUCCESS;
+        $this->info("Done. skipped_accounts={$skipped} failed={$failed}");
+
+        return $failed > 0 ? self::FAILURE : self::SUCCESS;
     }
 }

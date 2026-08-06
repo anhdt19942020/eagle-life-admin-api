@@ -8,19 +8,20 @@ use App\Models\PrintifyProduct;
 use App\Models\PrintifyProductVariant;
 use App\Models\PrintifyShop;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
+use Tests\Support\InteractsWithPrintifyAccounts;
 use Tests\TestCase;
 
 class EnsurePrintifyShopDefaultSkuTest extends TestCase
 {
     use DatabaseMigrations;
+    use InteractsWithPrintifyAccounts;
 
     public function test_ensure_sets_unique_enabled_sku_on_open_shop(): void
     {
-        $shop = PrintifyShop::create([
+        $account = $this->makePrintifyAccount();
+        $shop = $this->makePrintifyShop($account, [
             'printify_shop_id' => 501,
             'title' => 'Need Default',
-            'is_active' => true,
-            'is_open' => true,
             'default_sku' => null,
             'orders_sync_state' => 'complete',
             'manual_approval_confirmed_at' => now(),
@@ -46,11 +47,10 @@ class EnsurePrintifyShopDefaultSkuTest extends TestCase
 
     public function test_ensure_dry_run_does_not_write(): void
     {
-        $shop = PrintifyShop::create([
+        $account = $this->makePrintifyAccount();
+        $shop = $this->makePrintifyShop($account, [
             'printify_shop_id' => 502,
             'title' => 'Dry',
-            'is_active' => true,
-            'is_open' => true,
             'default_sku' => null,
             'orders_sync_state' => 'complete',
             'manual_approval_confirmed_at' => now(),
@@ -78,11 +78,10 @@ class EnsurePrintifyShopDefaultSkuTest extends TestCase
 
     public function test_ensure_skips_ambiguous_sku(): void
     {
-        $shop = PrintifyShop::create([
+        $account = $this->makePrintifyAccount('ambig@example.com', 'ambig-pat');
+        $shop = $this->makePrintifyShop($account, [
             'printify_shop_id' => 503,
             'title' => 'Ambiguous',
-            'is_active' => true,
-            'is_open' => true,
             'default_sku' => null,
             'orders_sync_state' => 'complete',
             'manual_approval_confirmed_at' => now(),
