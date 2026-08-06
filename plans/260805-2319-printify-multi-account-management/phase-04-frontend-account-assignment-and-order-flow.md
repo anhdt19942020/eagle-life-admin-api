@@ -1,7 +1,7 @@
 ---
 phase: 4
 title: "Frontend account assignment and order flow"
-status: pending
+status: completed
 priority: P1
 effort: "8-10h"
 dependencies: [2, 3]

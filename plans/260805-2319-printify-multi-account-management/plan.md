@@ -63,7 +63,7 @@ The canonical user assignment is `users.printify_shop_id`; the account is derive
 | 1 | [Database and legacy bootstrap](./phase-01-database-and-legacy-bootstrap.md) | Completed |
 | 2 | [Account and user assignment API](./phase-02-account-and-user-assignment-api.md) | Completed |
 | 3 | [Account-scoped Printify integration](./phase-03-account-scoped-printify-integration.md) | Completed |
-| 4 | [Frontend account assignment and order flow](./phase-04-frontend-account-assignment-and-order-flow.md) | Pending |
+| 4 | [Frontend account assignment and order flow](./phase-04-frontend-account-assignment-and-order-flow.md) | Completed |
 | 5 | [Tests docs and rollout](./phase-05-tests-docs-and-rollout.md) | Pending |
 
 ## Dependencies
