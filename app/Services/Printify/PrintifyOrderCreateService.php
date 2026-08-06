@@ -12,7 +12,7 @@ class PrintifyOrderCreateService
 {
     public function __construct(
         private readonly PrintifyOrderPreviewService $preview,
-        private readonly PrintifyClient $client,
+        private readonly PrintifyClientFactory $factory,
     ) {}
 
     /**
@@ -43,7 +43,8 @@ class PrintifyOrderCreateService
         }
 
         $attemptKey = 'create:'.$shop->id.':'.$externalId;
-        $remote = $this->client->post(
+        // preview() above already guarantees shop->account is non-null and active.
+        $remote = $this->factory->for($shop->account)->post(
             "/shops/{$shop->printify_shop_id}/orders.json",
             $preview['payload']
         );

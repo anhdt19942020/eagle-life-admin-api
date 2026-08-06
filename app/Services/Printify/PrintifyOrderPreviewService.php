@@ -18,6 +18,10 @@ class PrintifyOrderPreviewService
      */
     public function preview(Order $order, PrintifyShop $shop, array $manualMappings = []): array
     {
+        if ($shop->account === null || ! $shop->account->is_active) {
+            throw new RuntimeException('Printify account for this shop is inactive.');
+        }
+
         if (! $shop->is_open) {
             throw new RuntimeException('Printify shop is closed for order creation.');
         }
