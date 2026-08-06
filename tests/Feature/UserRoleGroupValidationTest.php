@@ -47,6 +47,21 @@ class UserRoleGroupValidationTest extends TestCase
             ->assertJsonPath('data.sales_group_id.0', 'The sales group id field is required.');
     }
 
+    public function test_create_user_without_username_is_rejected(): void
+    {
+        $this->actingAdmin();
+
+        $this->postJson('/api/users', [
+            'name' => 'Thảo Huyền',
+            'password' => '12345678',
+            'role' => 'seller',
+            'email' => 'thaohuyen@gmail.com',
+            'phone' => '0123456789',
+        ])->assertUnprocessable()
+            ->assertJsonPath('data.username.0', 'The username field is required.')
+            ->assertJsonMissingPath('errors');
+    }
+
     public function test_seller_with_sales_group_is_created(): void
     {
         $this->actingAdmin();

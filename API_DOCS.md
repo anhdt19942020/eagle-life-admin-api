@@ -182,7 +182,7 @@ Tài khoản bị khóa:
 
 ### 📝 Xử lý mã lỗi Frontend cần quan tâm
 
-1. **`422 Unprocessable Entity`**: Lỗi logic/dữ liệu hoặc Validate -> Quét `errors` object trên Form.
+1. **`422 Unprocessable Entity`**: Lỗi logic/dữ liệu hoặc Validate → đọc field errors trong `data` (object `{ field: [messages] }`), không phải key `errors`. Ví dụ: `data.username[0]`.
 2. **`401 Unauthorized`**: Token sai/hết hạn. Frontend cần clear `localStorage` và redirect về trang `/login`.
 3. **`403 Forbidden`**: User gọi tới API không có quyền hạn -> Báo lỗi "Bạn không có quyền..".
 4. **`500 Internal Server Error`**: Lỗi Server, hiển thị alert Toast chung chung. Tốt nhất là báo Developer Backend hỗ trợ.
