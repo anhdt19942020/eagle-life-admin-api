@@ -14,13 +14,23 @@ class OrderController extends Controller
 
     public function index(Request $request)
     {
-        $query = Order::query()
-            ->visibleTo($request->user())
-            ->with([
-                'buyer:id,name,employee_code',
-                'seller:id,name,employee_code',
-                'lineItems:id,order_id,title',
-            ]);
+        $user = $request->user();
+        $query = Order::query()->visibleTo($user);
+        $with = [
+            'buyer:id,name,employee_code',
+            'seller:id,name,employee_code',
+            'lineItems:id,order_id,title',
+        ];
+
+        if ($request->query('trashed') === 'only') {
+            if (! $user->hasRole('admin')) {
+                return $this->error('Chỉ admin được xem đơn đã xoá.', 403);
+            }
+            $query->onlyTrashed();
+            $with[] = 'deletedBy:id,name,employee_code';
+        }
+
+        $query->with($with);
 
         if ($request->filled('search')) {
             $search = $request->search;
@@ -102,8 +112,26 @@ class OrderController extends Controller
 
     public function destroy(Request $request, $id)
     {
-        Order::query()->visibleTo($request->user())->findOrFail($id)->delete();
+        $order = Order::query()->visibleTo($request->user())->findOrFail($id);
+        $order->forceFill(['deleted_by' => $request->user()->id])->save();
+        $order->delete();
 
         return $this->success(null, 'Xoá đơn hàng thành công');
+    }
+
+    public function restore(Request $request, $id)
+    {
+        if (! $request->user()->hasRole('admin')) {
+            return $this->error('Chỉ admin được khôi phục đơn đã xoá.', 403);
+        }
+
+        $order = Order::onlyTrashed()->findOrFail($id);
+        $order->restore();
+        $order->forceFill(['deleted_by' => null])->save();
+
+        return $this->success(
+            $order->fresh()->load(['buyer:id,name,employee_code', 'seller:id,name,employee_code']),
+            'Khôi phục đơn hàng thành công'
+        );
     }
 }

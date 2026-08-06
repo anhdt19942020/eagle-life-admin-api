@@ -4,11 +4,15 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Order extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = [
         'ebay_order_id',
         'ebay_order_number',
@@ -25,6 +29,7 @@ class Order extends Model
         'ebay_created_at' => 'datetime',
         'printify_created_at' => 'datetime',
         'ebay_export_rows' => 'array',
+        'deleted_at' => 'datetime',
     ];
 
     /**
@@ -68,6 +73,11 @@ class Order extends Model
     public function seller()
     {
         return $this->belongsTo(User::class, 'seller_id');
+    }
+
+    public function deletedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'deleted_by');
     }
 
     public function fulfillmentAddress(): HasOne

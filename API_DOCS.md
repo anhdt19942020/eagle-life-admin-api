@@ -404,6 +404,15 @@ Eager-load: `buyer`, `seller`, `fulfillmentAddress`, `lineItems`. Response kèm 
 ### 4.4. Xoá Đơn hàng
 
 - **Đường dẫn**: `DELETE /orders/{id}`
+- **Hành vi**: **soft delete** — set `deleted_at` + `deleted_by` (user đang xoá), không hard-delete row. List/show/Printify mặc định **không** thấy đơn đã xoá (404).
+- Line items / địa chỉ vẫn gắn order (không soft-delete riêng).
+
+### 4.5. Thùng rác & khôi phục (admin)
+
+- **Danh sách đã xoá**: `GET /orders?trashed=only` — **chỉ admin** (non-admin → 403). Item có `deleted_at`, `deleted_by`, relation `deletedBy`.
+- **Khôi phục**: `POST /orders/{id}/restore` — **chỉ admin**; clear `deleted_at` + `deleted_by`. Non-admin → 403. Id không ở trash → 404.
+
+**CSV re-import:** cùng `Order Number` với đơn soft-deleted → **revive** đúng `id` (không insert mới), đếm `updated`, clear `deleted_by`.
 
 ---
 
@@ -500,6 +509,8 @@ File export từ eBay; parser bỏ dòng rỗng trước header, group theo `Ord
 **Multi-item eBay:** dòng đầu có thể có Ship To nhưng trống `Item Number`; dòng tiếp theo có `Item Number` nhưng trống Ship To. Parser inherit Ship To/buyer trong cùng `Order Number`, bỏ dòng summary không có `Item Number`, và default `Shipping And Handling` / `Total Price` trống trên continuation.
 
 **Seller attribution:** `seller_id` = user đang import khi tạo mới hoặc khi đơn đang `seller_id = null`. Re-import **không** ghi đè seller đã gán.
+
+**Soft-delete revive:** nếu `ebay_order_number` trùng đơn đang soft-deleted → restore cùng `id`, clear `deleted_by`, rồi upsert như updated (không tạo row mới).
 
 **Cột bắt buộc** — cùng list trong `OrderImportService::REQUIRED_CSV_HEADERS`:
 

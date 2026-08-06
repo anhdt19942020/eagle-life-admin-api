@@ -142,7 +142,15 @@ class OrderImportService
     private function persistCsvOrder(OrderImportBatch $batch, string $number, array $rows, array &$summary, ?int $userId): void
     {
         DB::transaction(function () use ($batch, $number, $rows, &$summary, $userId): void {
-                $first = $rows[0]; $created = !Order::where('ebay_order_number', $number)->exists();
+                $first = $rows[0];
+                $existing = Order::withTrashed()->where('ebay_order_number', $number)->first();
+                $created = $existing === null;
+
+                if ($existing !== null && $existing->trashed()) {
+                    $existing->restore();
+                    $existing->forceFill(['deleted_by' => null])->save();
+                }
+
                 Order::upsert([['ebay_order_id' => $number, 'ebay_order_number' => $number, 'ebay_created_at' => $this->parseDate($first['Sale Date'] ?? null) ?? now(), 'created_at' => now(), 'updated_at' => now()]], ['ebay_order_number'], ['updated_at']);
                 $order = Order::where('ebay_order_number', $number)->firstOrFail();
                 $before = $created ? [] : $order->only(['buyer_id', 'seller_id', 'ebay_created_at']);
