@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class PrintifyShop extends Model
 {
     protected $fillable = [
+        'printify_account_id',
         'printify_shop_id',
         'title',
         'default_sku',
@@ -32,6 +33,11 @@ class PrintifyShop extends Model
         'manual_approval_confirmed_at' => 'datetime',
         'synced_at' => 'datetime',
     ];
+
+    public function account(): BelongsTo
+    {
+        return $this->belongsTo(PrintifyAccount::class, 'printify_account_id');
+    }
 
     public function products(): HasMany
     {

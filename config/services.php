@@ -33,6 +33,7 @@ return [
 
     'printify' => [
         'token' => env('PRINTIFY_TOKEN'),
+        'account_email' => env('PRINTIFY_ACCOUNT_EMAIL'),
         'base_url' => env('PRINTIFY_BASE_URL', 'https://api.printify.com/v1'),
         'timeout' => (int) env('PRINTIFY_TIMEOUT', 15),
         'retry_times' => (int) env('PRINTIFY_RETRY_TIMES', 3),

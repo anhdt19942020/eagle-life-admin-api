@@ -36,6 +36,9 @@ class User extends Authenticatable
         'avatar',
         'status',
         'sales_group_id',
+        'printify_shop_id',
+        'printify_shop_assigned_by',
+        'printify_shop_assigned_at',
     ];
 
     /**
@@ -58,11 +61,22 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'printify_shop_assigned_at' => 'datetime',
         ];
     }
 
     public function salesGroup(): BelongsTo
     {
         return $this->belongsTo(SalesGroup::class);
+    }
+
+    public function printifyShop(): BelongsTo
+    {
+        return $this->belongsTo(PrintifyShop::class, 'printify_shop_id');
+    }
+
+    public function printifyShopAssignedBy(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'printify_shop_assigned_by');
     }
 }
