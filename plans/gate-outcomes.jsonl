@@ -1,0 +1,1 @@
+{"ts":"2026-08-05T16:44:24Z","gate":"plan-red-team","plan":"260805-2319-printify-multi-account-management","risk":"high","model":"claude-opus-5","result":"failed","findings":4,"notes":"predict: leader cross-account shop routes; N+1; no assignment UI; no audit"}
