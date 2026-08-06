@@ -80,6 +80,7 @@ class RolePermissionSeeder extends Seeder
 
         $seller->syncPermissions([
             'orders.view', 'orders.create', 'orders.update',
+            'orders.import',
             'printify.order.create',
         ]);
 

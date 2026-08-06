@@ -88,13 +88,18 @@ class OrderImportService
                 }
             }
 
-            $rows = collect(array_slice($records, $headerIndex + 1))->values()->map(function (array $row, int $index) use ($headers, $headerIndex): array {
+            $candidates = collect(array_slice($records, $headerIndex + 1))->values()->map(function (array $row, int $index) use ($headers, $headerIndex): array {
                 if (count($row) > count($headers)) {
                     $row = array_slice($row, 0, count($headers));
                 }
 
                 return array_combine($headers, array_pad($row, count($headers), null)) + ['_row' => $headerIndex + $index + 2];
-            })->filter(fn (array $row) => $this->isImportableCsvRow($row))->values();
+            })->filter(fn (array $row) => $this->isCandidateCsvRow($row));
+
+            $rows = $candidates
+                ->groupBy(fn (array $row) => trim((string) $row['Order Number']))
+                ->flatMap(fn ($orderRows, string $number) => $this->normalizeEbayOrderRows($orderRows->values()->all(), $number))
+                ->values();
 
             if ($rows->isEmpty()) {
                 throw new RuntimeException('CSV không có dòng đơn hàng hợp lệ.');
@@ -115,7 +120,7 @@ class OrderImportService
             ];
 
             foreach ($rows->groupBy(fn (array $row) => trim((string) $row['Order Number'])) as $number => $orderRows) {
-                $this->persistCsvOrder($batch, $number, $orderRows->all(), $summary);
+                $this->persistCsvOrder($batch, $number, $orderRows->all(), $summary, $userId);
             }
 
             $batch->update([
@@ -134,9 +139,9 @@ class OrderImportService
         }
     }
 
-    private function persistCsvOrder(OrderImportBatch $batch, string $number, array $rows, array &$summary): void
+    private function persistCsvOrder(OrderImportBatch $batch, string $number, array $rows, array &$summary, ?int $userId): void
     {
-        DB::transaction(function () use ($batch, $number, $rows, &$summary): void {
+        DB::transaction(function () use ($batch, $number, $rows, &$summary, $userId): void {
                 $first = $rows[0]; $created = !Order::where('ebay_order_number', $number)->exists();
                 Order::upsert([['ebay_order_id' => $number, 'ebay_order_number' => $number, 'ebay_created_at' => $this->parseDate($first['Sale Date'] ?? null) ?? now(), 'created_at' => now(), 'updated_at' => now()]], ['ebay_order_number'], ['updated_at']);
                 $order = Order::where('ebay_order_number', $number)->firstOrFail();
@@ -147,7 +152,12 @@ class OrderImportService
                     'ebay_buyer_username' => $this->nullableTrim($first['Buyer Username'] ?? null),
                     'ebay_buyer_name' => $this->nullableTrim($first['Buyer Name'] ?? null),
                     'ebay_buyer_email' => $this->nullableTrim($first['Buyer Email'] ?? null),
-                ])->save();
+                ]);
+                // Attribute to importer on create, or fill null seller_id on re-import — never steal an existing assignment.
+                if ($userId !== null && ($created || $order->seller_id === null)) {
+                    $order->seller_id = $userId;
+                }
+                $order->save();
                 $order->fulfillmentAddress()->updateOrCreate([], $this->address($first));
                 foreach (collect($rows)->groupBy(fn (array $row) => $this->lineItemKey($row)) as $lineRows) {
                     $this->upsertLineItem($order->id, $lineRows->first(), $lineRows->sum(fn (array $row) => (int) $row['Quantity']));
@@ -171,7 +181,11 @@ class OrderImportService
         return $trimmed === '' ? null : $trimmed;
     }
 
-    private function isImportableCsvRow(array $row): bool
+    /**
+     * Keep order-shaped rows: full lines, address-only summary shells, or item
+     * continuation lines (empty Ship To). Footer / noise still rejected.
+     */
+    private function isCandidateCsvRow(array $row): bool
     {
         $orderNumber = trim((string) ($row['Order Number'] ?? ''));
         // eBay sold export: 13-14975-00010 — skip footer like "record(s) downloaded"
@@ -179,13 +193,75 @@ class OrderImportService
             return false;
         }
 
-        foreach (['Sale Date', 'Item Number', 'Quantity', 'Ship To Name', 'Ship To Address 1', 'Ship To City', 'Ship To Zip', 'Ship To Country'] as $field) {
-            if (trim((string) ($row[$field] ?? '')) === '') {
-                return false;
+        if (trim((string) ($row['Sale Date'] ?? '')) === '') {
+            return false;
+        }
+
+        $hasItem = trim((string) ($row['Item Number'] ?? '')) !== '';
+        $hasShipTo = trim((string) ($row['Ship To Name'] ?? '')) !== '';
+
+        return $hasItem || $hasShipTo;
+    }
+
+    /**
+     * eBay multi-item exports put Ship To on the first row (sometimes without
+     * Item Number) and leave Ship To blank on continuation item rows.
+     */
+    private function normalizeEbayOrderRows(array $rows, string $number): array
+    {
+        $carryFields = [
+            'Ship To Name', 'Ship To Phone', 'Ship To Address 1', 'Ship To Address 2',
+            'Ship To City', 'Ship To State', 'Ship To Zip', 'Ship To Country',
+            'Buyer Username', 'Buyer Name', 'Buyer Email',
+        ];
+
+        $template = [];
+        foreach ($rows as $row) {
+            foreach ($carryFields as $field) {
+                if (array_key_exists($field, $template)) {
+                    continue;
+                }
+                if (trim((string) ($row[$field] ?? '')) !== '') {
+                    $template[$field] = $row[$field];
+                }
             }
         }
 
-        return true;
+        $lineRows = [];
+        foreach ($rows as $row) {
+            if (trim((string) ($row['Item Number'] ?? '')) === '') {
+                continue;
+            }
+
+            foreach ($template as $field => $value) {
+                if (trim((string) ($row[$field] ?? '')) === '') {
+                    $row[$field] = $value;
+                }
+            }
+
+            foreach (['Shipping And Handling', 'Total Price'] as $moneyField) {
+                if (trim((string) ($row[$moneyField] ?? '')) !== '') {
+                    continue;
+                }
+                $row[$moneyField] = $moneyField === 'Total Price'
+                    ? (trim((string) ($row['Sold For'] ?? '')) !== '' ? $row['Sold For'] : '$0.00')
+                    : '$0.00';
+            }
+
+            $lineRows[] = $row;
+        }
+
+        if ($lineRows === []) {
+            throw new RuntimeException("Order {$number}: CSV có Order Number nhưng thiếu dòng Item Number.");
+        }
+
+        foreach (['Ship To Name', 'Ship To Address 1', 'Ship To City', 'Ship To Zip', 'Ship To Country'] as $field) {
+            if (trim((string) ($lineRows[0][$field] ?? '')) === '') {
+                throw new RuntimeException("Order {$number}: missing {$field} after normalizing eBay multi-item rows.");
+            }
+        }
+
+        return $lineRows;
     }
 
     private function address(array $row): array

@@ -42,7 +42,8 @@ forgetCachedPermissions()
 | sales-groups.* | ✅ | ❌ | ❌ |
 | orders.view/create/update | ✅ | ✅ | ✅ |
 | orders.delete | ✅ | ✅ | ❌ |
-| orders.import / orders.export | ✅ | ✅ | ❌ |
+| orders.import | ✅ | ✅ | ✅ |
+| orders.export | ✅ | ✅ | ❌ |
 | printify.* (existing set) | ✅ | ✅ | ❌ |
 
 ## Related Code Files

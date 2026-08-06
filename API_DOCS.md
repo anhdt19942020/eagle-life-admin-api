@@ -300,7 +300,7 @@ Nhóm vận hành theo sàn (`ebay` | `tiktok` | `amazon`). Chỉ admin (permiss
 | `group_leader` (có `sales_group_id`) | Đơn của seller cùng nhóm **hoặc** `seller_id = auth.id` |
 | `group_leader` (null group) | Chỉ `seller_id = auth.id` |
 | Không có role seller/leader/admin | Không thấy đơn nào |
-| Đơn `seller_id = null` (CSV import hiện tại) | **Chỉ admin** — assign seller trước khi staff thấy |
+| Đơn `seller_id = null` | **Chỉ admin** — CSV import gán `seller_id = user đang import` (create hoặc khi đang null; không ghi đè assignment đã có) |
 
 Query filters (`seller_id`, `search`, …) **AND** với visibility — không dùng filter để mở rộng phạm vi.  
 `GET/PUT/DELETE /orders/{id}` và Printify preview/create ngoài phạm vi → **404** (không lộ tồn tại). Non-admin **không** được đổi `seller_id` khi update (422).
@@ -410,7 +410,7 @@ Eager-load: `buyer`, `seller`, `fulfillmentAddress`, `lineItems`. Response kèm 
 ## 5. Import Đơn hàng eBay - Phase 6
 
 > Yêu cầu `Authorization: Bearer <token>`.  
-> `POST /orders/import` và `POST /orders/import-csv` cần permission `orders.import`.  
+> `POST /orders/import` và `POST /orders/import-csv` cần permission `orders.import` (seed: `admin`, `group_leader`, `seller`).  
 > **Ưu tiên hiện tại:** đưa đơn eBay vào hệ thống. Sync/lấy order từ Printify để bước sau.  
 > **FE production:** import CSV eBay dùng `POST /orders/import-csv` (multipart), không parse rồi đẩy JSON vào `/orders/import`.
 
@@ -496,6 +496,10 @@ File export từ eBay; parser bỏ dòng rỗng trước header, group theo `Ord
 - `order_line_items`
 - `order_fulfillment_addresses`
 - `order_import_batches` / `order_import_batch_items`
+
+**Multi-item eBay:** dòng đầu có thể có Ship To nhưng trống `Item Number`; dòng tiếp theo có `Item Number` nhưng trống Ship To. Parser inherit Ship To/buyer trong cùng `Order Number`, bỏ dòng summary không có `Item Number`, và default `Shipping And Handling` / `Total Price` trống trên continuation.
+
+**Seller attribution:** `seller_id` = user đang import khi tạo mới hoặc khi đơn đang `seller_id = null`. Re-import **không** ghi đè seller đã gán.
 
 **Cột bắt buộc** — cùng list trong `OrderImportService::REQUIRED_CSV_HEADERS`:
 

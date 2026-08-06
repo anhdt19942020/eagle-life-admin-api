@@ -144,4 +144,54 @@ class EbayCsvImportTest extends TestCase
         $this->expectException(\RuntimeException::class);
         app(OrderImportService::class)->importFromCsv(UploadedFile::fake()->createWithContent('orders.csv', $csv), null);
     }
+
+    /**
+     * eBay multi-item export: summary row has Ship To + empty Item Number;
+     * continuation rows have Item Number + empty Ship To / money totals.
+     */
+    public function test_it_imports_ebay_multi_item_continuation_rows(): void
+    {
+        $header = 'Order Number,Sale Date,Transaction ID,Item Number,Item Title,Custom Label,Variation Details,Quantity,Sold For,Shipping And Handling,Total Price,Buyer Username,Buyer Name,Buyer Email,Ship To Name,Ship To Phone,Ship To Address 1,Ship To Address 2,Ship To City,Ship To State,Ship To Zip,Ship To Country';
+        $csv = $header."\n"
+            ."08-14986-17879,Aug-03-26,,,,,,3,\$77.97,\$13.97,\$99.42,nwdesign187,Nicholas West,a@b.com,nicholas west,+1 318,10008 thornwood dr,,shreveport,LA,71106,US\n"
+            ."08-14986-17879,Aug-03-26,10082895396708,296645524277,Bo Jackson 1,,,1,\$26.99,,,,,,,,,,,,,\n"
+            ."08-14986-17879,Aug-03-26,10082895396608,296645530477,Bo Jackson 2,,,1,\$23.99,,,,,,,,,,,,,\n"
+            ."08-14986-17879,Aug-03-26,10082895396808,296645530477,Bo Jackson 3,,,1,\$26.99,,,,,,,,,,,,,\n"
+            ."08-14995-58560,Aug-05-26,10082948492108,297030264698,Shirt,,,1,\$19.99,\$4.99,\$27.04,jenuca0,Jesse,a@b.com,Jesse,+1,7800 Vista Mejor Dr,,Austin,TX,78744,US\n";
+
+        $result = app(OrderImportService::class)->importFromCsv(
+            UploadedFile::fake()->createWithContent('us394.csv', $csv),
+            null
+        );
+
+        $this->assertSame(2, $result['orders']);
+        $this->assertSame(2, $result['created']);
+        $this->assertSame(4, $result['rows']);
+
+        $multi = Order::where('ebay_order_number', '08-14986-17879')->with(['lineItems', 'fulfillmentAddress'])->firstOrFail();
+        $this->assertCount(3, $multi->lineItems);
+        $this->assertSame('shreveport', $multi->fulfillmentAddress->city);
+        $this->assertSame('nwdesign187', $multi->ebay_buyer_username);
+        $this->assertNotNull(Order::where('ebay_order_number', '08-14995-58560')->first());
+    }
+
+    public function test_csv_import_assigns_seller_id_to_importer_and_does_not_steal_on_reimport(): void
+    {
+        $importer = \App\Models\User::factory()->create();
+        $other = \App\Models\User::factory()->create();
+        $csv = "Order Number,Sale Date,Item Number,Quantity,Sold For,Shipping And Handling,Total Price,Ship To Name,Ship To Address 1,Ship To City,Ship To Zip,Ship To Country\n"
+            ."13-14975-00010,Aug-02-26,123,1,\$10.00,\$0.00,\$10.00,Jane Doe,1 Main St,Austin,78701,US\n";
+        $service = app(OrderImportService::class);
+
+        $service->importFromCsv(UploadedFile::fake()->createWithContent('a.csv', $csv), $importer->id);
+        $order = Order::where('ebay_order_number', '13-14975-00010')->firstOrFail();
+        $this->assertSame($importer->id, $order->seller_id);
+
+        $service->importFromCsv(UploadedFile::fake()->createWithContent('b.csv', $csv), $other->id);
+        $this->assertSame($importer->id, $order->fresh()->seller_id);
+
+        $order->forceFill(['seller_id' => null])->save();
+        $service->importFromCsv(UploadedFile::fake()->createWithContent('c.csv', $csv), $other->id);
+        $this->assertSame($other->id, $order->fresh()->seller_id);
+    }
 }

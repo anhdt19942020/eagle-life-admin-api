@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Permission;
@@ -22,6 +23,17 @@ class OrderAuthorizationTest extends TestCase
 
         Permission::create(['name' => 'orders.import', 'guard_name' => 'api']);
         $user->givePermissionTo('orders.import');
+        $this->postJson('/api/orders/import-csv')->assertUnprocessable();
+    }
+
+    public function test_seller_role_can_reach_csv_import_validation(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $seller = User::factory()->create();
+        $seller->assignRole('seller');
+        Sanctum::actingAs($seller);
+
         $this->postJson('/api/orders/import-csv')->assertUnprocessable();
     }
 }
