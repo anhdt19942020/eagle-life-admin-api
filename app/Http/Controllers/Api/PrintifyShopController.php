@@ -161,7 +161,7 @@ class PrintifyShopController extends Controller
             return $this->error(
                 'Không thể sync sản phẩm mặc định từ Printify.',
                 502,
-                ['code' => 'default_sku_sync_failed']
+                ['code' => 'default_sku_sync_failed', 'reason' => $result['reason']]
             );
         }
 
