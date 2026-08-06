@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PrintifyAccountResource;
+use App\Jobs\SyncPrintifyShopsJob;
 use App\Models\PrintifyAccount;
 use App\Traits\ApiResponse;
 use Illuminate\Http\Request;
@@ -52,9 +53,15 @@ class PrintifyAccountController extends Controller
             return $this->error('Không thể tạo Printify account. Vui lòng thử lại.', 500);
         }
 
+        SyncPrintifyShopsJob::dispatch($account->id)->afterResponse();
+
         $account->loadCount(['shops', 'assignedUsers']);
 
-        return $this->success(new PrintifyAccountResource($account), 'Tạo Printify account thành công', 201);
+        return $this->success(
+            new PrintifyAccountResource($account),
+            'Tạo Printify account thành công. Hệ thống đang đồng bộ shop — có thể mất vài phút, vui lòng làm mới danh sách shop sau.',
+            201
+        );
     }
 
     public function show(PrintifyAccount $account)

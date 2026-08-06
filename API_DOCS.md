@@ -579,8 +579,10 @@ Nếu `Custom Label` trống → để `null`. Khi preview/create Printify: reso
 
 - **Đường dẫn**: `POST /printify/shops/sync`
 - **Permission**: `printify.sync`
-- Gọi Printify `GET /shops.json`, **upsert** theo `printify_shop_id` (unique) — không tạo bản ghi trùng. Shop không còn trên Printify → `is_active=false`. Giữ `is_open` local.
-- **Response `data`:** `{ synced: number }` (số shop trả về từ Printify).
+- **Body**: `{ "account_id": number }` (bắt buộc; account phải `is_active`)
+- Enqueue `SyncPrintifyShopsJob` (chạy sau HTTP response). Job gọi Printify `GET /shops.json`, **upsert** theo `printify_shop_id` (unique) — không tạo bản ghi trùng. Shop không còn trên Printify → `is_active=false`. Giữ `is_open` local.
+- **Response `data`:** `{ queued: true, account_id: number }` — message báo đang đồng bộ (có thể mất vài phút).
+- **Tạo account** (`POST /printify/accounts`) cũng enqueue cùng job để shop sẵn sàng gán user.
 
 ### 6.4. Xác nhận Manual Approval
 

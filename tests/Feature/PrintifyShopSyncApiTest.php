@@ -4,9 +4,12 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\SyncPrintifyShopsJob;
 use App\Models\PrintifyShop;
 use App\Models\User;
+use App\Services\Printify\PrintifySyncService;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Permission;
@@ -42,9 +45,29 @@ class PrintifyShopSyncApiTest extends TestCase
             ->assertUnprocessable();
     }
 
-    public function test_sync_upserts_by_printify_shop_id_without_duplicates(): void
+    public function test_sync_queues_job_after_response(): void
     {
+        Bus::fake();
         $this->actingSyncer();
+        $account = $this->makePrintifyAccount();
+
+        $this->postJson('/api/printify/shops/sync', ['account_id' => $account->id])
+            ->assertOk()
+            ->assertJsonPath('data.queued', true)
+            ->assertJsonPath('data.account_id', $account->id)
+            ->assertJsonPath(
+                'message',
+                'Hệ thống đang đồng bộ shop từ Printify — có thể mất vài phút. Vui lòng làm mới danh sách sau khi hoàn tất.'
+            );
+
+        Bus::assertDispatchedAfterResponse(
+            SyncPrintifyShopsJob::class,
+            fn (SyncPrintifyShopsJob $job) => $job->accountId === $account->id
+        );
+    }
+
+    public function test_sync_job_upserts_by_printify_shop_id_without_duplicates(): void
+    {
         $this->configurePrintifyHttpBase();
         $account = $this->makePrintifyAccount();
 
@@ -61,10 +84,8 @@ class PrintifyShopSyncApiTest extends TestCase
             ]),
         ]);
 
-        $this->postJson('/api/printify/shops/sync', ['account_id' => $account->id])
-            ->assertOk()
-            ->assertJsonPath('data.synced', 2)
-            ->assertJsonPath('data.account_id', $account->id);
+        $job = new SyncPrintifyShopsJob($account->id);
+        $job->handle(app(PrintifySyncService::class));
 
         $this->assertSame(2, PrintifyShop::count());
         $this->assertSame(1, PrintifyShop::where('printify_shop_id', 101)->count());
@@ -83,9 +104,8 @@ class PrintifyShopSyncApiTest extends TestCase
         ]);
     }
 
-    public function test_sync_aborts_when_remote_shop_belongs_to_another_account(): void
+    public function test_sync_job_aborts_when_remote_shop_belongs_to_another_account(): void
     {
-        $this->actingSyncer();
         $this->configurePrintifyHttpBase();
         $accountA = $this->makePrintifyAccount('a@example.com', 'token-a');
         $accountB = $this->makePrintifyAccount('b@example.com', 'token-b');
@@ -100,8 +120,13 @@ class PrintifyShopSyncApiTest extends TestCase
             ]),
         ]);
 
-        $this->postJson('/api/printify/shops/sync', ['account_id' => $accountA->id])
-            ->assertStatus(409);
+        try {
+            $job = new SyncPrintifyShopsJob($accountA->id);
+            $job->handle(app(PrintifySyncService::class));
+            $this->fail('Expected RuntimeException was not thrown.');
+        } catch (\RuntimeException) {
+            // expected — ownership conflict aborts the whole sync
+        }
 
         $this->assertDatabaseHas('printify_shops', [
             'printify_shop_id' => 101,
@@ -109,5 +134,19 @@ class PrintifyShopSyncApiTest extends TestCase
             'title' => 'Owned by B',
         ]);
         $this->assertSame(1, PrintifyShop::count());
+    }
+
+    public function test_sync_rejects_inactive_account(): void
+    {
+        Bus::fake();
+        $this->actingSyncer();
+        $account = $this->makePrintifyAccount();
+        $account->update(['is_active' => false]);
+
+        $this->postJson('/api/printify/shops/sync', ['account_id' => $account->id])
+            ->assertStatus(422)
+            ->assertJsonPath('data.code', 'printify_account_inactive');
+
+        Bus::assertNothingDispatched();
     }
 }

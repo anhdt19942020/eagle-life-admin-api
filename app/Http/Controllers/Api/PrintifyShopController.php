@@ -4,13 +4,12 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PrintifyShopResource;
+use App\Jobs\SyncPrintifyShopsJob;
 use App\Models\PrintifyAccount;
 use App\Models\PrintifyProductVariant;
 use App\Models\PrintifyShop;
-use App\Services\Printify\PrintifySyncService;
 use App\Traits\ApiResponse;
 use Illuminate\Http\Request;
-use RuntimeException;
 
 class PrintifyShopController extends Controller
 {
@@ -57,7 +56,7 @@ class PrintifyShopController extends Controller
         return $this->success(PrintifyShopResource::collection($query->paginate($perPage)));
     }
 
-    public function sync(Request $request, PrintifySyncService $sync)
+    public function sync(Request $request)
     {
         $validated = $request->validate([
             'account_id' => ['required', 'integer', 'exists:printify_accounts,id'],
@@ -76,15 +75,14 @@ class PrintifyShopController extends Controller
             );
         }
 
-        try {
-            $count = $sync->syncShops($account);
-        } catch (RuntimeException $exception) {
-            return $this->error($exception->getMessage(), 409);
-        }
+        SyncPrintifyShopsJob::dispatch($account->id)->afterResponse();
 
         return $this->success(
-            ['synced' => $count, 'account_id' => $account->id],
-            "Đã sync {$count} shop từ Printify (upsert theo printify_shop_id, không tạo trùng)."
+            [
+                'queued' => true,
+                'account_id' => $account->id,
+            ],
+            'Hệ thống đang đồng bộ shop từ Printify — có thể mất vài phút. Vui lòng làm mới danh sách sau khi hoàn tất.'
         );
     }
 
