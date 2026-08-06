@@ -20,6 +20,7 @@ class PrintifyShopController extends Controller
         $request->validate([
             'active_only' => ['sometimes', 'boolean'],
             'open_only' => ['sometimes', 'boolean'],
+            'account_id' => ['sometimes', 'integer', 'exists:printify_accounts,id'],
         ]);
 
         $query = PrintifyShop::query()->orderBy('title');
@@ -35,6 +36,10 @@ class PrintifyShopController extends Controller
 
         if ($request->boolean('open_only')) {
             $query->where('is_open', true);
+        }
+
+        if ($request->filled('account_id')) {
+            $query->where('printify_account_id', $request->integer('account_id'));
         }
 
         $perPage = min(max($request->integer('per_page', 15), 1), 1000);

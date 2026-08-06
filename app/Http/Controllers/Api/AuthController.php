@@ -35,7 +35,7 @@ class AuthController extends Controller
         }
 
         $token = $user->createToken('auth_token')->plainTextToken;
-        $user->load(['roles.permissions', 'salesGroup']);
+        $user->load(['roles.permissions', 'salesGroup', 'printifyShop.account']);
 
         return $this->success([
             'access_token' => $token,
@@ -45,7 +45,7 @@ class AuthController extends Controller
 
     public function me(Request $request)
     {
-        $user = $request->user()->load(['roles.permissions', 'salesGroup']);
+        $user = $request->user()->load(['roles.permissions', 'salesGroup', 'printifyShop.account']);
         return $this->success($user);
     }
 

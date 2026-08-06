@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\OrderImportController;
 use App\Http\Controllers\Api\PrintifyProductController;
 use App\Http\Controllers\Api\PrintifyShopController;
 use App\Http\Controllers\Api\PrintifyOrderController;
+use App\Http\Controllers\Api\PrintifyAccountController;
 
 Route::post('/login', [AuthController::class, 'login']);
 
@@ -41,6 +42,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/orders/import/template', [OrderImportController::class, 'template']);
     Route::post('/orders/import', [OrderImportController::class, 'import'])->middleware('permission:orders.import');
     Route::post('/orders/import-csv', [OrderImportController::class, 'importCsv'])->middleware('permission:orders.import');
+
+    // Printify accounts
+    Route::get('/printify/accounts', [PrintifyAccountController::class, 'index'])->middleware('permission:printify.accounts.view');
+    Route::post('/printify/accounts', [PrintifyAccountController::class, 'store'])->middleware('permission:printify.accounts.manage');
+    Route::get('/printify/accounts/{account}', [PrintifyAccountController::class, 'show'])->middleware('permission:printify.accounts.view');
+    Route::patch('/printify/accounts/{account}', [PrintifyAccountController::class, 'update'])->middleware('permission:printify.accounts.manage');
+    Route::post('/printify/accounts/{account}/deactivate', [PrintifyAccountController::class, 'deactivate'])->middleware('permission:printify.accounts.manage');
+    Route::post('/printify/accounts/{account}/activate', [PrintifyAccountController::class, 'activate'])->middleware('permission:printify.accounts.manage');
 
     // Printify catalog - Phase 7
     Route::get('/printify/shops', [PrintifyShopController::class, 'index'])->middleware('permission:printify.catalog.view');

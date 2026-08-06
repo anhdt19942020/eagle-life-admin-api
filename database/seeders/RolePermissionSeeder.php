@@ -33,6 +33,8 @@ class RolePermissionSeeder extends Seeder
         'printify.shop-readiness.confirm',
         'printify.order.create',
         'printify.reconcile',
+        'printify.accounts.view',
+        'printify.accounts.manage',
     ];
 
     private const OBSOLETE_PERMISSIONS = [
@@ -72,12 +74,13 @@ class RolePermissionSeeder extends Seeder
         $groupLeader->syncPermissions([
             'orders.view', 'orders.create', 'orders.update', 'orders.delete',
             'orders.import', 'orders.export',
-            'printify.catalog.view', 'printify.sync',
+            'printify.catalog.view',
             'printify.shop-readiness.confirm', 'printify.order.create', 'printify.reconcile',
         ]);
 
         $seller->syncPermissions([
             'orders.view', 'orders.create', 'orders.update',
+            'printify.order.create',
         ]);
 
         foreach (array_keys(self::ROLE_MIGRATIONS) as $oldName) {

@@ -11,6 +11,7 @@ class PrintifyShopResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            'printify_account_id' => $this->printify_account_id,
             'printify_shop_id' => $this->printify_shop_id,
             'title' => $this->title,
             'default_sku' => $this->default_sku,

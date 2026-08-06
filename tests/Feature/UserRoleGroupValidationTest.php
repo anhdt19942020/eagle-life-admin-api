@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Models\PrintifyAccount;
+use App\Models\PrintifyShop;
 use App\Models\SalesGroup;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
@@ -52,15 +54,29 @@ class UserRoleGroupValidationTest extends TestCase
             'status' => true,
         ]);
 
+        $account = PrintifyAccount::create([
+            'email' => 'account@example.com',
+            'api_key' => 'test-key',
+            'is_active' => true,
+        ]);
+        $shop = PrintifyShop::create([
+            'printify_account_id' => $account->id,
+            'printify_shop_id' => 999001,
+            'title' => 'Shop One',
+            'is_active' => true,
+        ]);
+
         $this->postJson('/api/users', [
             'name' => 'Seller One',
             'email' => 'seller1@example.com',
             'password' => 'password123',
             'role' => 'seller',
             'sales_group_id' => $group->id,
+            'printify_shop_id' => $shop->id,
         ])->assertCreated()
             ->assertJsonPath('data.sales_group_id', $group->id)
-            ->assertJsonPath('data.roles.0.name', 'seller');
+            ->assertJsonPath('data.roles.0.name', 'seller')
+            ->assertJsonPath('data.printify_shop_id', $shop->id);
     }
 
     public function test_admin_user_clears_sales_group(): void
