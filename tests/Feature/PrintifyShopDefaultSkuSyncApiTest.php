@@ -89,6 +89,41 @@ class PrintifyShopDefaultSkuSyncApiTest extends TestCase
         $this->assertSame('LOCAL-UNIQUE', $shop->fresh()->default_sku);
     }
 
+    public function test_response_shop_is_complete_enough_to_replace_a_list_row(): void
+    {
+        $shop = $this->shopNeedingSku();
+        User::factory()->create(['printify_shop_id' => $shop->id]);
+
+        $product = PrintifyProduct::create([
+            'printify_shop_id' => $shop->id,
+            'printify_product_id' => 'local-prod',
+            'title' => 'Local',
+        ]);
+        PrintifyProductVariant::create([
+            'printify_product_id' => $product->id,
+            'printify_variant_id' => 902,
+            'sku' => 'ROW-SWAP-SKU',
+            'title' => 'S',
+            'is_enabled' => true,
+        ]);
+
+        $this->configurePrintifyHttpBase();
+        Http::fake();
+        $this->actingAdminConfirm();
+
+        $response = $this->postJson("/api/printify/shops/{$shop->id}/ensure-default-sku")
+            ->assertOk()
+            ->assertJsonPath('data.shop.default_sku', 'ROW-SWAP-SKU');
+
+        // The UI swaps this object straight into the shop list, so the payload
+        // must carry the relations the list renders and the recomputed blockers.
+        $payloadShop = $response->json('data.shop');
+        $this->assertArrayHasKey('account', $payloadShop);
+        $this->assertArrayHasKey('assigned_user', $payloadShop);
+        $this->assertNotContains('missing_default_sku', $payloadShop['readiness_issues']);
+        $this->assertTrue($payloadShop['ready_for_creation']);
+    }
+
     public function test_sets_default_sku_after_one_product_remote_sync(): void
     {
         $shop = $this->shopNeedingSku(['printify_shop_id' => 602]);
