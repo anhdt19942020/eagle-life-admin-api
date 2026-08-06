@@ -11,11 +11,13 @@ use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Http\UploadedFile;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Permission;
+use Tests\Support\InteractsWithPrintifyAccounts;
 use Tests\TestCase;
 
 class OrderShowHttpTest extends TestCase
 {
     use DatabaseMigrations;
+    use InteractsWithPrintifyAccounts;
 
     protected function setUp(): void
     {
@@ -45,6 +47,36 @@ class OrderShowHttpTest extends TestCase
             ->assertOk()
             ->assertJsonPath('status', 'success')
             ->assertJsonPath('data.data.0.line_items.0.title', 'Long product title for the orders list');
+    }
+
+    public function test_order_index_includes_seller_printify_shop_for_admin_bulk_draft_ui(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+        Sanctum::actingAs($admin);
+
+        $account = $this->makePrintifyAccount();
+        $shop = $this->makePrintifyShop($account, [
+            'printify_shop_id' => 422,
+            'title' => 'Alice Alice TT',
+        ]);
+        $seller = User::factory()->create(['printify_shop_id' => $shop->id]);
+        $seller->assignRole('seller');
+
+        Order::create([
+            'ebay_order_id' => '23-14960-52371',
+            'ebay_order_number' => '23-14960-52371',
+            'ebay_created_at' => '2026-08-02 12:00:00',
+            'seller_id' => $seller->id,
+        ]);
+
+        $this->getJson('/api/orders')
+            ->assertOk()
+            ->assertJsonPath('status', 'success')
+            ->assertJsonPath('data.data.0.seller.id', $seller->id)
+            ->assertJsonPath('data.data.0.seller.printify_shop_id', $shop->id)
+            ->assertJsonPath('data.data.0.seller.printify_shop.id', $shop->id)
+            ->assertJsonPath('data.data.0.seller.printify_shop.title', 'Alice Alice TT');
     }
 
     public function test_order_show_includes_fulfillment_address_line_items_and_export_rows(): void

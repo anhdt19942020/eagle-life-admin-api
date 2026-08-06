@@ -18,7 +18,8 @@ class OrderController extends Controller
         $query = Order::query()->visibleTo($user);
         $with = [
             'buyer:id,name,employee_code',
-            'seller:id,name,employee_code',
+            'seller:id,name,employee_code,printify_shop_id',
+            'seller.printifyShop:id,title,printify_shop_id,is_open',
             'lineItems:id,order_id,title',
         ];
 
@@ -72,7 +73,8 @@ class OrderController extends Controller
             ->visibleTo($request->user())
             ->with([
                 'buyer:id,name,employee_code',
-                'seller:id,name,employee_code',
+                'seller:id,name,employee_code,printify_shop_id',
+                'seller.printifyShop:id,title,printify_shop_id,is_open',
                 'fulfillmentAddress',
                 'lineItems',
             ])
@@ -105,7 +107,11 @@ class OrderController extends Controller
         ]));
 
         return $this->success(
-            $order->load(['buyer:id,name,employee_code', 'seller:id,name,employee_code']),
+            $order->load([
+                'buyer:id,name,employee_code',
+                'seller:id,name,employee_code,printify_shop_id',
+                'seller.printifyShop:id,title,printify_shop_id,is_open',
+            ]),
             'Cập nhật đơn hàng thành công'
         );
     }
@@ -130,7 +136,11 @@ class OrderController extends Controller
         $order->forceFill(['deleted_by' => null])->save();
 
         return $this->success(
-            $order->fresh()->load(['buyer:id,name,employee_code', 'seller:id,name,employee_code']),
+            $order->fresh()->load([
+                'buyer:id,name,employee_code',
+                'seller:id,name,employee_code,printify_shop_id',
+                'seller.printifyShop:id,title,printify_shop_id,is_open',
+            ]),
             'Khôi phục đơn hàng thành công'
         );
     }
