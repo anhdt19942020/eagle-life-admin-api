@@ -17,6 +17,11 @@ class PrintifyShopResource extends JsonResource
                 'email' => $this->account->email,
                 'is_active' => $this->account->is_active,
             ]),
+            'assigned_user' => $this->whenLoaded('assignedUser', fn () => $this->assignedUser === null ? null : [
+                'id' => $this->assignedUser->id,
+                'name' => $this->assignedUser->name,
+                'email' => $this->assignedUser->email,
+            ]),
             'printify_shop_id' => $this->printify_shop_id,
             'title' => $this->title,
             'default_sku' => $this->default_sku,

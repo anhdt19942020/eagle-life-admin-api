@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class PrintifyShop extends Model
 {
@@ -37,6 +38,11 @@ class PrintifyShop extends Model
     public function account(): BelongsTo
     {
         return $this->belongsTo(PrintifyAccount::class, 'printify_account_id');
+    }
+
+    public function assignedUser(): HasOne
+    {
+        return $this->hasOne(User::class, 'printify_shop_id');
     }
 
     public function products(): HasMany

@@ -24,7 +24,7 @@ class PrintifyShopController extends Controller
             'account_id' => ['sometimes', 'integer', 'exists:printify_accounts,id'],
         ]);
 
-        $query = PrintifyShop::query()->with('account')->orderBy('title');
+        $query = PrintifyShop::query()->with(['account', 'assignedUser'])->orderBy('title');
 
         // Default management list: active shops (includes closed).
         $activeOnly = $request->has('active_only')

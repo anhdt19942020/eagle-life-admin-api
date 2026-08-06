@@ -46,6 +46,15 @@ class UserController extends Controller
             $query->where('sales_group_id', $request->sales_group_id);
         }
 
+        if ($request->filled('printify_assignment')) {
+            $assignment = $request->input('printify_assignment');
+            if ($assignment === 'assigned') {
+                $query->whereNotNull('printify_shop_id');
+            } elseif ($assignment === 'unassigned') {
+                $query->whereNull('printify_shop_id');
+            }
+        }
+
         $users = $query->latest()->paginate($request->per_page ?? 15);
 
         return $this->success($users, 'Lấy danh sách người dùng thành công');
