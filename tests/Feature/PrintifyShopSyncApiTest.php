@@ -4,6 +4,7 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\EnsurePrintifyAccountDefaultSkusJob;
 use App\Jobs\SyncPrintifyShopsJob;
 use App\Models\PrintifyShop;
 use App\Models\User;
@@ -68,6 +69,7 @@ class PrintifyShopSyncApiTest extends TestCase
 
     public function test_sync_job_upserts_by_printify_shop_id_without_duplicates(): void
     {
+        Bus::fake([EnsurePrintifyAccountDefaultSkusJob::class]);
         $this->configurePrintifyHttpBase();
         $account = $this->makePrintifyAccount();
 
@@ -102,10 +104,16 @@ class PrintifyShopSyncApiTest extends TestCase
             'title' => 'Brand New',
             'is_active' => true,
         ]);
+
+        Bus::assertDispatched(
+            EnsurePrintifyAccountDefaultSkusJob::class,
+            fn (EnsurePrintifyAccountDefaultSkusJob $job) => $job->accountId === $account->id
+        );
     }
 
     public function test_sync_job_aborts_when_remote_shop_belongs_to_another_account(): void
     {
+        Bus::fake([EnsurePrintifyAccountDefaultSkusJob::class]);
         $this->configurePrintifyHttpBase();
         $accountA = $this->makePrintifyAccount('a@example.com', 'token-a');
         $accountB = $this->makePrintifyAccount('b@example.com', 'token-b');
@@ -134,6 +142,7 @@ class PrintifyShopSyncApiTest extends TestCase
             'title' => 'Owned by B',
         ]);
         $this->assertSame(1, PrintifyShop::count());
+        Bus::assertNotDispatched(EnsurePrintifyAccountDefaultSkusJob::class);
     }
 
     public function test_sync_rejects_inactive_account(): void

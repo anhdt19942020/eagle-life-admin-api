@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Jobs\EnsurePrintifyAccountDefaultSkusJob;
 use App\Models\PrintifyAccount;
 use App\Services\Printify\PrintifySyncService;
 use Illuminate\Console\Command;
@@ -33,7 +34,8 @@ class SyncPrintifyShops extends Command
             try {
                 $count = $sync->syncShops($account);
                 $synced += $count;
-                $this->info("Account {$account->id} ({$account->email}): synced {$count} shop(s).");
+                EnsurePrintifyAccountDefaultSkusJob::dispatch($account->id);
+                $this->info("Account {$account->id} ({$account->email}): synced {$count} shop(s); default-SKU ensure queued.");
             } catch (Throwable $exception) {
                 $failed++;
                 $this->error("Account {$account->id} ({$account->email}): {$exception->getMessage()}");

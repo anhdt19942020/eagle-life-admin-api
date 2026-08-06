@@ -2,11 +2,9 @@
 
 namespace App\Console\Commands;
 
-use App\Models\PrintifyProductVariant;
 use App\Models\PrintifyShop;
-use App\Services\Printify\PrintifySyncService;
+use App\Services\Printify\PrintifyDefaultSkuEnsurer;
 use Illuminate\Console\Command;
-use Throwable;
 
 class EnsurePrintifyShopDefaultSku extends Command
 {
@@ -18,24 +16,29 @@ class EnsurePrintifyShopDefaultSku extends Command
 
     protected $description = 'Backfill printify_shops.default_sku from a unique enabled local variant (optionally seed 1 product)';
 
-    public function handle(PrintifySyncService $sync): int
+    public function handle(PrintifyDefaultSkuEnsurer $ensurer): int
     {
         $dryRun = (bool) $this->option('dry-run');
         $seed = (bool) $this->option('seed-product');
+        $openOnly = (bool) $this->option('open-only');
+        $shopIdOption = $this->option('shop-id');
+        $remoteShopId = ($shopIdOption !== null && $shopIdOption !== '')
+            ? (int) $shopIdOption
+            : null;
 
-        $query = PrintifyShop::query()->where('is_active', true);
-        if ($this->option('open-only')) {
+        $query = PrintifyShop::query()->where('is_active', true)->with('account')->orderBy('title');
+        if ($openOnly) {
             $query->where('is_open', true);
         }
-        if ($this->option('shop-id') !== null && $this->option('shop-id') !== '') {
-            $query->where('printify_shop_id', $this->option('shop-id'));
+        if ($remoteShopId !== null) {
+            $query->where('printify_shop_id', $remoteShopId);
         } else {
             $query->where(function ($q) {
                 $q->whereNull('default_sku')->orWhere('default_sku', '');
             });
         }
 
-        $shops = $query->with('account')->orderBy('title')->get();
+        $shops = $query->get();
         if ($shops->isEmpty()) {
             $this->info('No shops to process.');
 
@@ -47,65 +50,37 @@ class EnsurePrintifyShopDefaultSku extends Command
         $failed = 0;
 
         foreach ($shops as $shop) {
-            if (filled(trim((string) $shop->default_sku)) && $this->option('shop-id')) {
-                $this->line("Shop {$shop->printify_shop_id} already has default_sku={$shop->default_sku}");
-                $skipped++;
-                continue;
-            }
+            $result = $ensurer->ensureForShop($shop, $seed, $dryRun);
 
-            if ($shop->account === null || ! $shop->account->is_active) {
-                $this->warn("Shop {$shop->printify_shop_id} ({$shop->title}): skip — inactive or missing account");
-                $skipped++;
-                continue;
-            }
-
-            try {
-                $sku = $this->pickUniqueEnabledSku($shop);
-                if ($sku === null && $seed) {
-                    $this->warn("Shop {$shop->printify_shop_id} ({$shop->title}): no local SKU — seeding 1 product…");
-                    if (! $dryRun) {
-                        $sync->syncProducts($shop->account, (int) $shop->printify_shop_id, 1, 1);
-                        $shop->refresh();
-                    }
-                    $sku = $this->pickUniqueEnabledSku($shop);
-                }
-
-                if ($sku === null) {
-                    $this->warn("Shop {$shop->printify_shop_id} ({$shop->title}): skip — no unique enabled SKU");
-                    $skipped++;
-                    continue;
-                }
-
-                if ($dryRun) {
-                    $this->info("[dry-run] would set shop {$shop->printify_shop_id} ({$shop->title}) default_sku={$sku}");
-                } else {
-                    $shop->forceFill(['default_sku' => $sku])->save();
-                    $this->info("Set shop {$shop->printify_shop_id} ({$shop->title}) default_sku={$sku}");
-                }
+            if ($result['status'] === 'set') {
+                $prefix = $dryRun ? '[dry-run] would set' : 'Set';
+                $this->info("{$prefix} shop {$shop->printify_shop_id} ({$shop->title}) default_sku={$result['sku']}");
                 $set++;
-            } catch (Throwable $exception) {
-                $failed++;
-                $this->error("Shop {$shop->printify_shop_id}: {$exception->getMessage()}");
+                continue;
             }
+
+            if ($result['status'] === 'failed') {
+                $this->error("Shop {$shop->printify_shop_id}: {$result['reason']}");
+                $failed++;
+                continue;
+            }
+
+            $reason = $result['reason'] ?? 'skipped';
+            if ($reason === 'already_set') {
+                $this->line("Shop {$shop->printify_shop_id} already has default_sku={$result['sku']}");
+            } elseif ($reason === 'inactive_or_missing_account') {
+                $this->warn("Shop {$shop->printify_shop_id} ({$shop->title}): skip — inactive or missing account");
+            } elseif ($reason === 'no_unique_enabled_sku') {
+                $this->warn("Shop {$shop->printify_shop_id} ({$shop->title}): skip — no unique enabled SKU");
+            } else {
+                $this->warn("Shop {$shop->printify_shop_id} ({$shop->title}): skip — {$reason}");
+            }
+            $skipped++;
         }
 
         $this->newLine();
         $this->info("Done. set={$set} skipped={$skipped} failed={$failed}".($dryRun ? ' (dry-run)' : ''));
 
         return $failed > 0 ? self::FAILURE : self::SUCCESS;
-    }
-
-    private function pickUniqueEnabledSku(PrintifyShop $shop): ?string
-    {
-        $skus = PrintifyProductVariant::query()
-            ->where('is_enabled', true)
-            ->whereNotNull('sku')
-            ->where('sku', '!=', '')
-            ->whereHas('product', fn ($q) => $q->where('printify_shop_id', $shop->id))
-            ->pluck('sku');
-
-        $unique = $skus->countBy()->filter(fn ($count) => $count === 1)->keys();
-
-        return $unique->isEmpty() ? null : (string) $unique->first();
     }
 }

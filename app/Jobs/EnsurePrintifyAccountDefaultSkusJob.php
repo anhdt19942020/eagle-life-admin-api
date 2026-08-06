@@ -3,23 +3,23 @@
 namespace App\Jobs;
 
 use App\Models\PrintifyAccount;
-use App\Services\Printify\PrintifySyncService;
+use App\Services\Printify\PrintifyDefaultSkuEnsurer;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
-class SyncPrintifyShopsJob implements ShouldQueue
+class EnsurePrintifyAccountDefaultSkusJob implements ShouldQueue
 {
     use Queueable;
 
-    public int $tries = 3;
+    public int $tries = 2;
 
-    public int $timeout = 120;
+    public int $timeout = 180;
 
     public function __construct(public readonly int $accountId) {}
 
-    public function handle(PrintifySyncService $sync): void
+    public function handle(PrintifyDefaultSkuEnsurer $ensurer): void
     {
         $account = PrintifyAccount::query()
             ->whereKey($this->accountId)
@@ -27,7 +27,7 @@ class SyncPrintifyShopsJob implements ShouldQueue
             ->first();
 
         if ($account === null) {
-            Log::warning('printify_shops.sync_job_skipped', [
+            Log::warning('printify_default_sku.job_skipped', [
                 'account_id' => $this->accountId,
                 'reason' => 'inactive_or_missing',
             ]);
@@ -35,19 +35,19 @@ class SyncPrintifyShopsJob implements ShouldQueue
             return;
         }
 
-        $count = $sync->syncShops($account);
+        $stats = $ensurer->ensureForAccount($account, seedProduct: true, dryRun: false);
 
-        EnsurePrintifyAccountDefaultSkusJob::dispatch($account->id);
-
-        Log::info('printify_shops.sync_job_done', [
+        Log::info('printify_default_sku.job_done', [
             'account_id' => $account->id,
-            'synced' => $count,
+            'set' => $stats['set'],
+            'skipped' => $stats['skipped'],
+            'failed' => $stats['failed'],
         ]);
     }
 
     public function failed(?Throwable $exception): void
     {
-        Log::error('printify_shops.sync_job_failed', [
+        Log::error('printify_default_sku.job_failed', [
             'account_id' => $this->accountId,
             'exception_class' => $exception !== null ? $exception::class : null,
             'message' => $exception?->getMessage(),

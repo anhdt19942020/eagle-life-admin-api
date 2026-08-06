@@ -597,8 +597,9 @@ Nếu `Custom Label` trống → để `null`. Khi preview/create Printify: reso
 - **Permission**: `printify.sync`
 - **Body**: `{ "account_id": number }` (bắt buộc; account phải `is_active`)
 - Enqueue `SyncPrintifyShopsJob` (chạy sau HTTP response). Job gọi Printify `GET /shops.json`, **upsert** theo `printify_shop_id` (unique) — không tạo bản ghi trùng. Shop không còn trên Printify → `is_active=false`. Giữ `is_open` local.
+- Sau khi shop sync **thành công**, hệ thống enqueue `EnsurePrintifyAccountDefaultSkusJob` cho cùng `account_id`: với mỗi shop active **thiếu** `default_sku`, seed tối đa **1 product** rồi gán `default_sku` nếu có đúng 1 unique enabled SKU. **Không** ghi đè `default_sku` đã có; SKU ambiguous → bỏ qua (admin set tay). Sync shops **không** kéo full catalog.
 - **Response `data`:** `{ queued: true, account_id: number }` — message báo đang đồng bộ (có thể mất vài phút).
-- **Tạo account** (`POST /printify/accounts`) cũng enqueue cùng job để shop sẵn sàng gán user.
+- **Tạo account** (`POST /printify/accounts`) cũng enqueue cùng shop-sync job (và do đó ensure default SKU sau sync) để shop sẵn sàng gán user.
 
 ### 6.4. Xác nhận Manual Approval
 
@@ -654,9 +655,9 @@ Luồng (as implemented):
 
 | Artisan command | Mô tả |
 | --- | --- |
-| `php artisan printify:sync-shops` | Sync shops |
+| `php artisan printify:sync-shops` | Sync shops (mỗi account thành công → queue ensure default SKU) |
 | `php artisan printify:sync-products {--shop-id=} {--product-id=} {--limit-pages=} {--max-products=}` | Sync products. Prefer `--product-id=` (1 product) hoặc `--max-products=1` khi chỉ cần seed default SKU — tránh full catalog shop lớn. **Không** chạy hourly (đã tắt schedule). |
-| `php artisan printify:ensure-default-sku {--shop-id=} {--open-only} {--seed-product} {--dry-run}` | Backfill `default_sku` từ unique enabled variant; optional seed 1 product nếu shop chưa có SKU. |
+| `php artisan printify:ensure-default-sku {--shop-id=} {--open-only} {--seed-product} {--dry-run}` | Backfill thủ công `default_sku` từ unique enabled variant; optional seed 1 product. Post-sync job đã auto-seed; command vẫn dùng cho ops/dry-run. |
 | `php artisan printify:sync-orders {--shop-id=} {--limit-pages=}` | Sync orders inbound |
 | `php artisan printify:sync-uploads {--limit-pages=}` | Sync uploads |
 
