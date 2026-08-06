@@ -37,7 +37,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Orders - Phase 5
     Route::post('/orders/{id}/restore', [OrderController::class, 'restore']);
-    Route::apiResource('orders', OrderController::class)->except(['store']);
+    Route::delete('/orders/{id}', [OrderController::class, 'destroy'])
+        ->middleware('permission:orders.delete');
+    Route::apiResource('orders', OrderController::class)->except(['store', 'destroy']);
 
     // Import eBay - Phase 6
     Route::get('/orders/import/template', [OrderImportController::class, 'template']);
@@ -55,6 +57,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Printify catalog - Phase 7
     Route::get('/printify/shops', [PrintifyShopController::class, 'index'])->middleware('permission:printify.catalog.view');
     Route::post('/printify/shops/sync', [PrintifyShopController::class, 'sync'])->middleware('permission:printify.sync');
+    Route::post('/printify/shops/{shop}/ensure-default-sku', [PrintifyShopController::class, 'ensureDefaultSku'])->middleware('permission:printify.shop-readiness.confirm');
     Route::patch('/printify/shops/{shop}', [PrintifyShopController::class, 'updateDefaultSku'])->middleware('permission:printify.shop-readiness.confirm');
     Route::post('/printify/shops/{shop}/confirm-manual-approval', [PrintifyShopController::class, 'confirmManualApproval'])->middleware('permission:printify.shop-readiness.confirm');
     Route::post('/printify/shops/{shop}/open', [PrintifyShopController::class, 'open'])->middleware('permission:printify.shop-readiness.confirm');

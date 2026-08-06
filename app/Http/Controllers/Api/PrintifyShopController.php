@@ -8,6 +8,7 @@ use App\Jobs\SyncPrintifyShopsJob;
 use App\Models\PrintifyAccount;
 use App\Models\PrintifyProductVariant;
 use App\Models\PrintifyShop;
+use App\Services\Printify\PrintifyDefaultSkuEnsurer;
 use App\Traits\ApiResponse;
 use Illuminate\Http\Request;
 
@@ -23,7 +24,12 @@ class PrintifyShopController extends Controller
             'account_id' => ['sometimes', 'integer', 'exists:printify_accounts,id'],
         ]);
 
-        $query = PrintifyShop::query()->with(['account', 'assignedUser'])->orderBy('title');
+        $query = PrintifyShop::query()
+            ->with(['account', 'assignedUser'])
+            ->withExists([
+                'orders as has_order_conflicts' => fn ($query) => $query->where('has_conflict', true),
+            ])
+            ->orderBy('title');
 
         // Default management list: active shops (includes closed).
         $activeOnly = $request->has('active_only')
@@ -120,6 +126,72 @@ class PrintifyShopController extends Controller
             new PrintifyShopResource($shop->fresh()),
             'Đã đóng shop trên hệ thống (không cho chọn khi tạo đơn). Không đổi Printify.'
         );
+    }
+
+    public function ensureDefaultSku(
+        Request $request,
+        PrintifyShop $shop,
+        PrintifyDefaultSkuEnsurer $ensurer,
+    ) {
+        $this->authorize('manage', $shop);
+
+        if (! $shop->is_active) {
+            return $this->error(
+                'Shop Printify hiện không hoạt động.',
+                422,
+                ['code' => 'printify_shop_not_ready']
+            );
+        }
+
+        $shop->loadMissing('account');
+        if ($shop->account === null || ! $shop->account->is_active) {
+            return $this->error(
+                'Printify account của shop hiện không hoạt động.',
+                422,
+                ['code' => 'printify_account_inactive']
+            );
+        }
+
+        $result = $ensurer->ensureForShop($shop, seedProduct: true);
+
+        if ($result['status'] === 'failed') {
+            return $this->error(
+                'Không thể sync sản phẩm mặc định từ Printify.',
+                502,
+                ['code' => 'default_sku_sync_failed']
+            );
+        }
+
+        if ($result['reason'] === 'no_unique_enabled_sku') {
+            return $this->error(
+                'Không tìm thấy SKU enabled duy nhất để đặt làm mặc định.',
+                422,
+                ['code' => 'default_sku_not_resolved']
+            );
+        }
+
+        $code = $result['reason'] === 'already_set'
+            ? 'default_sku_already_set'
+            : 'default_sku_set';
+
+        $freshShop = PrintifyShop::query()
+            ->with(['account', 'assignedUser'])
+            ->withExists([
+                'orders as has_order_conflicts' => fn ($query) => $query->where('has_conflict', true),
+            ])
+            ->findOrFail($shop->id);
+
+        return $this->success([
+            'result' => [
+                'code' => $code,
+                'status' => $result['status'],
+                'sku' => $result['sku'],
+                'reason' => $result['reason'],
+            ],
+            'shop' => new PrintifyShopResource($freshShop),
+        ], $code === 'default_sku_set'
+            ? 'Đã sync một sản phẩm và đặt default SKU cho shop.'
+            : 'Shop đã có default SKU.');
     }
 
     public function updateDefaultSku(Request $request, PrintifyShop $shop)

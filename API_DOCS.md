@@ -288,8 +288,29 @@ Nhóm vận hành theo sàn (`ebay` | `tiktok` | `amazon`). Chỉ admin (permiss
 
 ## 4. Quản lý Đơn hàng (Orders) - Phase 5
 
-> Tất cả endpoints đều yêu cầu `Authorization: Bearer <token>`.  
-> Hiện tại routes orders CRUD chỉ cần đăng nhập (chưa gắn Spatie permission trên route). Domain là **đơn eBay**, không phải CRM `customer_*` / `status`.
+> Tất cả endpoints đều yêu cầu `Authorization: Bearer <token>`. Domain là **đơn eBay**, không phải CRM `customer_*` / `status`.
+
+### Dual-layer auth (FE + API)
+
+| Lớp | Dùng cho | Cơ chế |
+|-----|----------|--------|
+| Role + row scope | Menu/list Orders, `GET/PUT` đơn trong phạm vi | Role `seller` / `group_leader` / `admin` + `scopeVisibleTo` — **không** cần permission để vào màn Orders |
+| Spatie permission | Menu admin & hành động nhạy cảm | `users.*`, `sales-groups.*`, `printify.accounts.*`, `orders.delete`, `orders.import`, … — ẩn menu/nút theo `roles[].permissions[]` từ login/`/me`; API 403 nếu gọi thẳng |
+
+**Gợi ý ẩn/hiện menu FE**
+
+| Menu / action | Show khi |
+|---------------|----------|
+| Orders | Role `seller` / `group_leader` / `admin` |
+| Xoá đơn (UI) | `orders.delete` |
+| Users | `users.view` |
+| Sales groups | `sales-groups.view` |
+| Printify accounts | `printify.accounts.view` |
+| Printify catalog/shops | `printify.catalog.view` |
+| Import | `orders.import` |
+| Printify create trên đơn | `printify.order.create` |
+
+`GET`/`PUT` orders vẫn chỉ cần auth + visibility (chưa gắn `permission:orders.view` / `orders.update` trên route — intentional).
 
 ### Visibility (row-level)
 
@@ -305,7 +326,7 @@ Nhóm vận hành theo sàn (`ebay` | `tiktok` | `amazon`). Chỉ admin (permiss
 Query filters (`seller_id`, `search`, …) **AND** với visibility — không dùng filter để mở rộng phạm vi.  
 `GET/PUT/DELETE /orders/{id}` và Printify preview/create ngoài phạm vi → **404** (không lộ tồn tại). Non-admin **không** được đổi `seller_id` khi update (422).
 
-Residual (chưa làm trong scope này): import vẫn có thể ghi `seller_code` cross-group; route CRUD chưa gắn `permission:orders.*` nên seller vẫn xóa được đơn của mình nếu gọi `DELETE`.
+Residual: import vẫn có thể ghi `seller_code` cross-group (chưa siết trong scope visibility/delete).
 
 ### 4.1. Danh sách Đơn hàng
 
@@ -404,7 +425,8 @@ Eager-load: `buyer`, `seller`, `fulfillmentAddress`, `lineItems`. Response kèm 
 ### 4.4. Xoá Đơn hàng
 
 - **Đường dẫn**: `DELETE /orders/{id}`
-- **Hành vi**: **soft delete** — set `deleted_at` + `deleted_by` (user đang xoá), không hard-delete row. List/show/Printify mặc định **không** thấy đơn đã xoá (404).
+- **Permission**: `orders.delete` (seed: `admin`, `group_leader` — **không** cấp cho `seller`; thiếu quyền → **403**)
+- **Hành vi**: **soft delete** — set `deleted_at` + `deleted_by` (user đang xoá), không hard-delete row. List/show/Printify mặc định **không** thấy đơn đã xoá (404). Ngoài visibility → 404 sau khi đã có permission.
 - Line items / địa chỉ vẫn gắn order (không soft-delete riêng).
 
 ### 4.5. Thùng rác & khôi phục (admin)
@@ -607,23 +629,36 @@ Nếu `Custom Label` trống → để `null`. Khi preview/create Printify: reso
 
 `is_active` = còn trên Printify (sync). `is_open` = admin cho phép chọn khi tạo đơn (độc lập với sync). `default_sku` = SKU mặc định khi tạo đơn trên shop này (local; sync không ghi đè).
 
-`ready_for_creation` = `is_active` + `is_open` + **có `default_sku`** + manual approval + `orders_sync_state=complete` + không conflict order. Thiếu default → không ready; picker tạo đơn chỉ hiện shop ready.
+`ready_for_creation` = `is_active` + account active + `is_open` + **có `default_sku`** + manual approval + `orders_sync_state=complete` + không conflict order. Thiếu default → không ready; picker tạo đơn chỉ hiện shop ready.
 
-### 6.3.0. Cập nhật default SKU của shop
+Mỗi item còn có `readiness_issues`: mảng mã blocker ổn định (`shop_inactive`, `account_inactive`, `shop_closed`, `missing_default_sku`, `manual_approval_required`, `orders_sync_incomplete`, `order_conflicts`). UI quản lý shop dùng field này để tô trạng thái và hiển thị lý do chưa sẵn sàng.
+
+### 6.3.0. Sync 1 sản phẩm mặc định (per shop)
+
+- **Đường dẫn**: `POST /printify/shops/{shop}/ensure-default-sku`
+- **Permission**: `printify.shop-readiness.confirm`
+- **Path param**: `shop` = local `printify_shops.id`
+- **Body**: không có
+- Chạy đồng bộ trên server: dùng variant enabled unique đã sync local nếu có; nếu không, gọi Printify sync tối đa **1 product** rồi gán `default_sku` khi tìm được đúng 1 SKU enabled unique.
+- **Không** ghi đè `default_sku` đã có; **không** tự mở shop, confirm manual approval, hoàn tất orders sync, hay xóa conflict.
+- Shop/account inactive → `422` (`printify_shop_not_ready` / `printify_account_inactive`). Không unique SKU sau sync → `422` `default_sku_not_resolved`. Lỗi Printify bất ngờ → `502` `default_sku_sync_failed` (chi tiết chỉ ở log).
+- **Success `data`:** `{ result: { code, status, sku, reason }, shop: PrintifyShopResource }` với `code` ∈ `default_sku_set` | `default_sku_already_set`.
+
+### 6.3.1. Cập nhật default SKU của shop
 
 - **Đường dẫn**: `PATCH /printify/shops/{shop}`
 - **Permission**: `printify.shop-readiness.confirm`
 - **Body:** `{ "default_sku": "..." | null }` — null/empty xóa default. Non-empty phải khớp đúng 1 enabled variant đã sync của shop; 0 hoặc >1 → `422`.
 - Sync shops **không** ghi đè `default_sku`.
 
-### 6.3.1. Mở / đóng shop (selectable)
+### 6.3.2. Mở / đóng shop (selectable)
 
 - **Đường dẫn**: `POST /printify/shops/{shop}/open` · `POST /printify/shops/{shop}/close`
 - **Permission**: `printify.shop-readiness.confirm`
 - **Path param**: `shop` = local `printify_shops.id`
 - Sync shops **không** ghi đè `is_open`.
 
-### 6.3.2. Sync shops từ Printify (manual)
+### 6.3.3. Sync shops từ Printify (manual)
 
 - **Đường dẫn**: `POST /printify/shops/sync`
 - **Permission**: `printify.sync`

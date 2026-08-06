@@ -63,6 +63,19 @@ class PrintifyDefaultSkuEnsurer
             ];
         }
 
+        if (! $shop->is_active) {
+            Log::info('printify_default_sku.skipped', [
+                'printify_shop_id' => $shop->printify_shop_id,
+                'reason' => 'inactive_shop',
+            ]);
+
+            return [
+                'status' => 'skipped',
+                'sku' => null,
+                'reason' => 'inactive_shop',
+            ];
+        }
+
         $shop->loadMissing('account');
 
         if ($shop->account === null || ! $shop->account->is_active) {

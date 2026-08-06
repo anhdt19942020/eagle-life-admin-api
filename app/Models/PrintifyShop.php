@@ -62,13 +62,31 @@ class PrintifyShop extends Model
 
     public function isReadyForCreation(): bool
     {
-        // Per-shop gate: other shops' sync/approval state must not block this shop.
-        return $this->is_active
-            && $this->is_open
-            && filled(trim((string) $this->default_sku))
-            && $this->manual_approval_confirmed_at !== null
-            && $this->orders_sync_state === 'complete'
-            && ! $this->orders()->where('has_conflict', true)->exists();
+        return $this->readinessIssues() === [];
+    }
+
+    /**
+     * Stable blocker codes consumed by the shop-management UI.
+     *
+     * @return list<string>
+     */
+    public function readinessIssues(): array
+    {
+        $this->loadMissing('account');
+
+        $hasOrderConflicts = array_key_exists('has_order_conflicts', $this->attributes)
+            ? (bool) $this->getAttribute('has_order_conflicts')
+            : $this->orders()->where('has_conflict', true)->exists();
+
+        return array_values(array_filter([
+            ! $this->is_active ? 'shop_inactive' : null,
+            $this->account === null || ! $this->account->is_active ? 'account_inactive' : null,
+            ! $this->is_open ? 'shop_closed' : null,
+            blank(trim((string) $this->default_sku)) ? 'missing_default_sku' : null,
+            $this->manual_approval_confirmed_at === null ? 'manual_approval_required' : null,
+            $this->orders_sync_state !== 'complete' ? 'orders_sync_incomplete' : null,
+            $hasOrderConflicts ? 'order_conflicts' : null,
+        ]));
     }
 
     public function setOpenState(bool $isOpen, ?int $userId): void

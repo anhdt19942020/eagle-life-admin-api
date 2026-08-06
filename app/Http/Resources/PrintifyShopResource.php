@@ -9,6 +9,8 @@ class PrintifyShopResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        $readinessIssues = $this->readinessIssues();
+
         return [
             'id' => $this->id,
             'printify_account_id' => $this->printify_account_id,
@@ -32,7 +34,8 @@ class PrintifyShopResource extends JsonResource
             'orders_sync_completed_at' => $this->orders_sync_completed_at,
             'manual_approval_confirmed_at' => $this->manual_approval_confirmed_at,
             'synced_at' => $this->synced_at,
-            'ready_for_creation' => $this->isReadyForCreation(),
+            'ready_for_creation' => $readinessIssues === [],
+            'readiness_issues' => $readinessIssues,
         ];
     }
 }

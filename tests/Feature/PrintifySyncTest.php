@@ -141,6 +141,20 @@ class PrintifySyncTest extends TestCase
         ]);
 
         $this->assertFalse($shop->fresh()->isReadyForCreation());
+        $this->assertContains('missing_default_sku', $shop->fresh()->readinessIssues());
+    }
+
+    public function test_inactive_account_is_not_ready_for_creation(): void
+    {
+        $account = $this->makePrintifyAccount('inactive@example.com', 'pat', false);
+        $shop = $this->makePrintifyShop($account, [
+            'default_sku' => 'READY-SKU',
+            'orders_sync_state' => 'complete',
+            'manual_approval_confirmed_at' => now(),
+        ]);
+
+        $this->assertFalse($shop->fresh()->isReadyForCreation());
+        $this->assertContains('account_inactive', $shop->fresh()->readinessIssues());
     }
 
     public function test_closed_shop_is_not_ready_for_creation(): void
