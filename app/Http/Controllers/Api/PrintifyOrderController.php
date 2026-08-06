@@ -18,6 +18,8 @@ class PrintifyOrderController extends Controller
 
     public function preview(Request $request, Order $order, PrintifyOrderPreviewService $preview)
     {
+        $order = Order::query()->visibleTo($request->user())->findOrFail($order->id);
+
         $resolved = $this->validatedShopAndMappings($request);
         if ($resolved instanceof JsonResponse) {
             return $resolved;
@@ -38,6 +40,8 @@ class PrintifyOrderController extends Controller
 
     public function create(Request $request, Order $order, PrintifyOrderCreateService $create)
     {
+        $order = Order::query()->visibleTo($request->user())->findOrFail($order->id);
+
         $resolved = $this->validatedShopAndMappings($request);
         if ($resolved instanceof JsonResponse) {
             return $resolved;

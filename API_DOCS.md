@@ -291,6 +291,22 @@ Nhóm vận hành theo sàn (`ebay` | `tiktok` | `amazon`). Chỉ admin (permiss
 > Tất cả endpoints đều yêu cầu `Authorization: Bearer <token>`.  
 > Hiện tại routes orders CRUD chỉ cần đăng nhập (chưa gắn Spatie permission trên route). Domain là **đơn eBay**, không phải CRM `customer_*` / `status`.
 
+### Visibility (row-level)
+
+| Role | Đơn được thấy |
+|------|----------------|
+| `admin` | Tất cả |
+| `seller` | `seller_id = auth.id` |
+| `group_leader` (có `sales_group_id`) | Đơn của seller cùng nhóm **hoặc** `seller_id = auth.id` |
+| `group_leader` (null group) | Chỉ `seller_id = auth.id` |
+| Không có role seller/leader/admin | Không thấy đơn nào |
+| Đơn `seller_id = null` (CSV import hiện tại) | **Chỉ admin** — assign seller trước khi staff thấy |
+
+Query filters (`seller_id`, `search`, …) **AND** với visibility — không dùng filter để mở rộng phạm vi.  
+`GET/PUT/DELETE /orders/{id}` và Printify preview/create ngoài phạm vi → **404** (không lộ tồn tại). Non-admin **không** được đổi `seller_id` khi update (422).
+
+Residual (chưa làm trong scope này): import vẫn có thể ghi `seller_code` cross-group; route CRUD chưa gắn `permission:orders.*` nên seller vẫn xóa được đơn của mình nếu gọi `DELETE`.
+
 ### 4.1. Danh sách Đơn hàng
 
 - **Đường dẫn**: `GET /orders`
@@ -299,7 +315,7 @@ Nhóm vận hành theo sàn (`ebay` | `tiktok` | `amazon`). Chỉ admin (permiss
 | Param         | Ý nghĩa                                         | Ví dụ                    |
 | ------------- | ----------------------------------------------- | ------------------------ |
 | `search`      | Tìm theo `ebay_order_id` hoặc `printify_order_id` | `search=13-14975`      |
-| `seller_id`   | Lọc seller                                      | `seller_id=3`            |
+| `seller_id`   | Lọc seller (bị cắt bởi visibility)              | `seller_id=3`            |
 | `buyer_id`    | Lọc buyer                                       | `buyer_id=5`             |
 | `from_date`   | Từ ngày `ebay_created_at` (yyyy-mm-dd)          | `from_date=2026-01-01`   |
 | `to_date`     | Đến ngày                                        | `to_date=2026-12-31`     |
@@ -312,6 +328,7 @@ Nhóm vận hành theo sàn (`ebay` | `tiktok` | `amazon`). Chỉ admin (permiss
 ### 4.2. Chi tiết Đơn hàng
 
 - **Đường dẫn**: `GET /orders/{id}`
+- Ngoài phạm vi visibility → `404`.
 
 Eager-load: `buyer`, `seller`, `fulfillmentAddress`, `lineItems`. Response kèm `ebay_export_rows`, `ebay_buyer_*`, và nested address/line items từ import CSV.
 

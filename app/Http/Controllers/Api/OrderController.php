@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Traits\ApiResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
 {
@@ -13,11 +14,13 @@ class OrderController extends Controller
 
     public function index(Request $request)
     {
-        $query = Order::with([
-            'buyer:id,name,employee_code',
-            'seller:id,name,employee_code',
-            'lineItems:id,order_id,title',
-        ]);
+        $query = Order::query()
+            ->visibleTo($request->user())
+            ->with([
+                'buyer:id,name,employee_code',
+                'seller:id,name,employee_code',
+                'lineItems:id,order_id,title',
+            ]);
 
         if ($request->filled('search')) {
             $search = $request->search;
@@ -53,26 +56,38 @@ class OrderController extends Controller
         return $this->success($orders, 'Lấy danh sách đơn hàng thành công');
     }
 
-    public function show($id)
+    public function show(Request $request, $id)
     {
-        $order = Order::with([
-            'buyer:id,name,employee_code',
-            'seller:id,name,employee_code',
-            'fulfillmentAddress',
-            'lineItems',
-        ])->findOrFail($id);
+        $order = Order::query()
+            ->visibleTo($request->user())
+            ->with([
+                'buyer:id,name,employee_code',
+                'seller:id,name,employee_code',
+                'fulfillmentAddress',
+                'lineItems',
+            ])
+            ->findOrFail($id);
 
         return $this->success($order, 'Lấy chi tiết đơn hàng thành công');
     }
 
     public function update(Request $request, $id)
     {
-        $order = Order::findOrFail($id);
+        $user = $request->user();
+        $order = Order::query()->visibleTo($user)->findOrFail($id);
 
         $request->validate([
-            'seller_id'           => 'nullable|exists:users,id',
-            'buyer_id'            => 'nullable|exists:users,id',
+            'seller_id' => 'nullable|exists:users,id',
+            'buyer_id' => 'nullable|exists:users,id',
         ]);
+
+        if (! $user->hasRole('admin')
+            && $request->exists('seller_id')
+            && (int) $request->input('seller_id') !== (int) $order->seller_id) {
+            throw ValidationException::withMessages([
+                'seller_id' => ['Bạn không được thay đổi seller của đơn hàng.'],
+            ]);
+        }
 
         $order->update($request->only([
             'seller_id',
@@ -85,9 +100,10 @@ class OrderController extends Controller
         );
     }
 
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
-        Order::findOrFail($id)->delete();
+        Order::query()->visibleTo($request->user())->findOrFail($id)->delete();
+
         return $this->success(null, 'Xoá đơn hàng thành công');
     }
 }

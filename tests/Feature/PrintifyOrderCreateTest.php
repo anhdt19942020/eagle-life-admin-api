@@ -209,6 +209,7 @@ class PrintifyOrderCreateTest extends TestCase
         $user->assignRole('seller');
         $user->givePermissionTo('printify.order.create');
         Sanctum::actingAs($user);
+        $order->forceFill(['seller_id' => $user->id])->save();
 
         Http::fake();
 
@@ -232,7 +233,8 @@ class PrintifyOrderCreateTest extends TestCase
         ]);
         $this->seedMappedVariant($assigned);
         $order = $this->importOrderWithSku('SKU-M');
-        $this->actingSellerWithShop($assigned);
+        $seller = $this->actingSellerWithShop($assigned);
+        $order->forceFill(['seller_id' => $seller->id])->save();
 
         Http::fake();
 
@@ -249,7 +251,8 @@ class PrintifyOrderCreateTest extends TestCase
         $shop = $this->readyShop();
         $remoteProductId = $this->seedMappedVariant($shop);
         $order = $this->importOrderWithSku('SKU-M');
-        $this->actingSellerWithShop($shop);
+        $seller = $this->actingSellerWithShop($shop);
+        $order->forceFill(['seller_id' => $seller->id])->save();
 
         Http::fake([
             'printify.test/v1/shops/101/orders.json' => Http::response([

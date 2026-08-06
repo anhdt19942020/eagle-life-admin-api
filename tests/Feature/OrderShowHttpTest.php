@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Models\Order;
 use App\Models\OrderLineItem;
 use App\Services\OrderImportService;
+use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Http\UploadedFile;
 use Laravel\Sanctum\Sanctum;
@@ -16,9 +17,16 @@ class OrderShowHttpTest extends TestCase
 {
     use DatabaseMigrations;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->seed(RolePermissionSeeder::class);
+    }
+
     public function test_order_index_includes_line_item_titles_for_the_orders_table(): void
     {
         $user = User::factory()->create();
+        $user->assignRole('admin');
         Sanctum::actingAs($user);
 
         $order = Order::create([
@@ -42,6 +50,7 @@ class OrderShowHttpTest extends TestCase
     public function test_order_show_includes_fulfillment_address_line_items_and_export_rows(): void
     {
         $user = User::factory()->create();
+        $user->assignRole('admin');
         Permission::findOrCreate('orders.import', 'api');
         $user->givePermissionTo('orders.import');
         Sanctum::actingAs($user);
