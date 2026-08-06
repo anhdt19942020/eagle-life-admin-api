@@ -28,7 +28,7 @@ Expose the existing one-shop default-SKU workflow over HTTP and make readiness r
 
 Keep one readiness authority on `PrintifyShop`:
 
-- `readinessIssues()` returns stable codes such as `shop_inactive`, `account_inactive`, `shop_closed`, `missing_default_sku`, `manual_approval_required`, `orders_sync_incomplete`, and `order_conflicts`.
+- `readinessIssues()` returns stable codes such as `shop_inactive`, `account_inactive`, `shop_closed`, `missing_default_sku`, `manual_approval_required`, and `order_conflicts`. (`orders_sync_incomplete` was removed as a creation blocker — sync state remains informational.)
 - `isReadyForCreation()` delegates to `readinessIssues()->isEmpty()` so boolean and blockers cannot drift.
 - `PrintifyShopController::index()` eager-loads account and a filtered conflict existence aggregate.
 - `PrintifyShopResource` emits both fields.

@@ -630,9 +630,9 @@ Nếu `Custom Label` trống → để `null`. Khi preview/create Printify: reso
 
 `is_active` = còn trên Printify (sync). `is_open` = admin cho phép chọn khi tạo đơn (độc lập với sync). `default_sku` = SKU mặc định khi tạo đơn trên shop này (local; sync không ghi đè).
 
-`ready_for_creation` = `is_active` + account active + `is_open` + **có `default_sku`** + manual approval + `orders_sync_state=complete` + không conflict order. Thiếu default → không ready; picker tạo đơn chỉ hiện shop ready.
+`ready_for_creation` = `is_active` + account active + `is_open` + **có `default_sku`** + manual approval + không conflict order. `orders_sync_state` vẫn trả về để theo dõi đồng bộ nhưng **không** chặn tạo đơn nháp. Thiếu default → không ready; picker tạo đơn chỉ hiện shop ready.
 
-Mỗi item còn có `readiness_issues`: mảng mã blocker ổn định (`shop_inactive`, `account_inactive`, `shop_closed`, `missing_default_sku`, `manual_approval_required`, `orders_sync_incomplete`, `order_conflicts`). UI quản lý shop dùng field này để tô trạng thái và hiển thị lý do chưa sẵn sàng.
+Mỗi item còn có `readiness_issues`: mảng mã blocker ổn định (`shop_inactive`, `account_inactive`, `shop_closed`, `missing_default_sku`, `manual_approval_required`, `order_conflicts`). UI quản lý shop dùng field này để tô trạng thái và hiển thị lý do chưa sẵn sàng.
 
 ### 6.3.0. Sync 1 sản phẩm mặc định (per shop)
 

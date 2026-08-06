@@ -20,17 +20,34 @@ class PrintifySyncTest extends TestCase
     use DatabaseMigrations;
     use InteractsWithPrintifyAccounts;
 
-    public function test_limited_sync_never_marks_shop_ready(): void
+    public function test_limited_sync_marks_orders_sync_incomplete_but_does_not_gate_creation(): void
     {
         $account = $this->makePrintifyAccount();
-        $shop = $this->makePrintifyShop($account);
+        $shop = $this->makePrintifyShop($account, [
+            'default_sku' => 'READY-SKU',
+            'manual_approval_confirmed_at' => now(),
+        ]);
         $this->configurePrintifyHttpBase();
         Http::fake(['printify.test/*' => Http::response(['data' => [], 'last_page' => 1])]);
 
         app(PrintifySyncService::class)->syncOrders($account, 101, 1);
 
         $this->assertSame('incomplete', $shop->fresh()->orders_sync_state);
-        $this->assertFalse($shop->fresh()->isReadyForCreation());
+        $this->assertTrue($shop->fresh()->isReadyForCreation());
+        $this->assertNotContains('orders_sync_incomplete', $shop->fresh()->readinessIssues());
+    }
+
+    public function test_pending_orders_sync_does_not_block_ready_shop(): void
+    {
+        $account = $this->makePrintifyAccount();
+        $shop = $this->makePrintifyShop($account, [
+            'default_sku' => 'READY-SKU',
+            'orders_sync_state' => 'pending',
+            'manual_approval_confirmed_at' => now(),
+        ]);
+
+        $this->assertTrue($shop->fresh()->isReadyForCreation());
+        $this->assertSame([], $shop->fresh()->readinessIssues());
     }
 
     public function test_exhaustive_sync_marks_shop_complete_but_needs_manual_confirmation(): void

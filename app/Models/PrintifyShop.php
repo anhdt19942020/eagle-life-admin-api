@@ -84,7 +84,7 @@ class PrintifyShop extends Model
             ! $this->is_open ? 'shop_closed' : null,
             blank(trim((string) $this->default_sku)) ? 'missing_default_sku' : null,
             $this->manual_approval_confirmed_at === null ? 'manual_approval_required' : null,
-            $this->orders_sync_state !== 'complete' ? 'orders_sync_incomplete' : null,
+            // orders_sync_state is informational only — sellers may create drafts before sync completes.
             $hasOrderConflicts ? 'order_conflicts' : null,
         ]));
     }

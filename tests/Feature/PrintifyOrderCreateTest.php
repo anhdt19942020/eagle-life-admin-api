@@ -269,4 +269,33 @@ class PrintifyOrderCreateTest extends TestCase
         Http::assertSent(fn ($request) => $request->url() === 'https://printify.test/v1/shops/101/orders.json'
             && ($request['line_items'][0]['product_id'] ?? null) === $remoteProductId);
     }
+
+    public function test_seller_can_create_draft_when_orders_sync_incomplete(): void
+    {
+        $this->configurePrintifyHttp();
+        $account = $this->makePrintifyAccount();
+        $shop = $this->makePrintifyShop($account, [
+            'printify_shop_id' => 101,
+            'title' => 'Primary',
+            'default_sku' => 'TEST-DEFAULT-SKU',
+            'orders_sync_state' => 'pending',
+            'manual_approval_confirmed_at' => now(),
+        ]);
+        $this->seedMappedVariant($shop);
+        $order = $this->importOrderWithSku('SKU-M');
+        $seller = $this->actingSellerWithShop($shop);
+        $order->forceFill(['seller_id' => $seller->id])->save();
+
+        Http::fake([
+            'printify.test/v1/shops/101/orders.json' => Http::response([
+                'id' => 'pog-unsynced',
+                'status' => 'pending',
+            ], 200),
+        ]);
+
+        $this->postJson("/api/orders/{$order->id}/printify-create")
+            ->assertOk()
+            ->assertJsonPath('data.created', true)
+            ->assertJsonPath('data.printify_order.printify_order_id', 'pog-unsynced');
+    }
 }

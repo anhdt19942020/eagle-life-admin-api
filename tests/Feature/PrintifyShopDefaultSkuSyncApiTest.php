@@ -333,7 +333,7 @@ class PrintifyShopDefaultSkuSyncApiTest extends TestCase
 
         $this->assertContains('shop_closed', $issues);
         $this->assertContains('manual_approval_required', $issues);
-        $this->assertContains('orders_sync_incomplete', $issues);
+        $this->assertNotContains('orders_sync_incomplete', $issues);
         $this->assertNotContains('missing_default_sku', $issues);
     }
 }
