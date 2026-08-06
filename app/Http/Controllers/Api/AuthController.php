@@ -16,21 +16,21 @@ class AuthController extends Controller
     public function login(Request $request)
     {
         $request->validate([
-            'email' => 'required|email',
+            'username' => 'required|string',
             'password' => 'required',
         ]);
 
-        $user = User::where('email', $request->email)->first();
+        $user = User::where('username', $request->username)->first();
 
         if (! $user || ! Hash::check($request->password, $user->password)) {
             throw ValidationException::withMessages([
-                'email' => ['Tài khoản hoặc mật khẩu không chính xác.'],
+                'username' => ['Tài khoản hoặc mật khẩu không chính xác.'],
             ]);
         }
-        
-        if (!$user->status) {
+
+        if (! $user->status) {
             throw ValidationException::withMessages([
-                'email' => ['Tài khoản của bạn đã bị khóa.'],
+                'username' => ['Tài khoản của bạn đã bị khóa.'],
             ]);
         }
 

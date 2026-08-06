@@ -21,7 +21,9 @@ Tài liệu cho Frontend Engineer: Auth/Roles (Phase 2–3), Users (Phase 4), Or
 
 ### 2.1. Đăng nhập (Login)
 
-- Xác thực người dùng và trả về Token cùng Role (người dùng mặc định để test: `admin@eaglelife.com` / `12345678`).
+- Xác thực người dùng bằng **username** (không dùng email) và trả về Token cùng Role (người dùng mặc định để test: `admin` / `12345678`).
+
+> **Breaking (FE):** request body đổi từ `email` → `username`. Email chỉ còn cột thông tin profile trên user.
 
 * **Đường dẫn**: `POST /login`
 * **Yêu cầu Xác thực**: Không (Public)
@@ -30,7 +32,7 @@ Tài liệu cho Frontend Engineer: Auth/Roles (Phase 2–3), Users (Phase 4), Or
 
 ```json
 {
-    "email": "admin@eaglelife.com",
+    "username": "admin",
     "password": "12345678"
 }
 ```
@@ -39,7 +41,7 @@ Tài liệu cho Frontend Engineer: Auth/Roles (Phase 2–3), Users (Phase 4), Or
 
 ```json
 {
-    "success": true,
+    "status": "success",
     "message": "Đăng nhập thành công",
     "data": {
         "access_token": "1|abcdef123456789...",
@@ -69,13 +71,26 @@ Tài liệu cho Frontend Engineer: Auth/Roles (Phase 2–3), Users (Phase 4), Or
 ```
 
 **Response (422 validation error):**
-Trạng thái tài khoản sai mật khẩu hoặc bị vô hiệu hóa (`status = 0`).
+Sai mật khẩu / username không tồn tại, hoặc tài khoản bị vô hiệu hóa (`status = 0`). Envelope dùng `data` (không phải `errors`).
 
 ```json
 {
+    "status": "error",
     "message": "Tài khoản hoặc mật khẩu không chính xác.",
-    "errors": {
-        "email": ["Tài khoản hoặc mật khẩu không chính xác."]
+    "data": {
+        "username": ["Tài khoản hoặc mật khẩu không chính xác."]
+    }
+}
+```
+
+Tài khoản bị khóa:
+
+```json
+{
+    "status": "error",
+    "message": "Tài khoản của bạn đã bị khóa.",
+    "data": {
+        "username": ["Tài khoản của bạn đã bị khóa."]
     }
 }
 ```
@@ -195,6 +210,7 @@ Trạng thái tài khoản sai mật khẩu hoặc bị vô hiệu hóa (`status
 ```json
 {
     "name": "Yến",
+    "username": "yen",
     "password": "12345678",
     "role": "seller",
     "sales_group_id": 1,
@@ -204,7 +220,7 @@ Trạng thái tài khoản sai mật khẩu hoặc bị vô hiệu hóa (`status
 }
 ```
 
-_Lưu ý: Không gửi `employee_code` (hệ thống tự sinh). `role` ∈ `admin` | `seller` | `group_leader`. Seller/leader thiếu `sales_group_id` → 422._
+_Lưu ý: `username` **bắt buộc** (dùng để login). Không gửi `employee_code` (hệ thống tự sinh). `email` là thông tin liên hệ, không dùng login. `role` ∈ `admin` | `seller` | `group_leader`. Seller/leader thiếu `sales_group_id` → 422._
 
 ### 3.3. Sửa Nhân viên
 

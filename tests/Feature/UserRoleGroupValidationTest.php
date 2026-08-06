@@ -1,5 +1,7 @@
 <?php
 
+// db-refresh-allow: matches existing Feature suite; phpunit uses isolated sqlite :memory: via DatabaseMigrations
+
 namespace Tests\Feature;
 
 use App\Models\PrintifyAccount;
@@ -37,6 +39,7 @@ class UserRoleGroupValidationTest extends TestCase
 
         $this->postJson('/api/users', [
             'name' => 'Seller One',
+            'username' => 'seller1',
             'email' => 'seller1@example.com',
             'password' => 'password123',
             'role' => 'seller',
@@ -68,6 +71,7 @@ class UserRoleGroupValidationTest extends TestCase
 
         $this->postJson('/api/users', [
             'name' => 'Seller One',
+            'username' => 'seller1',
             'email' => 'seller1@example.com',
             'password' => 'password123',
             'role' => 'seller',
@@ -91,6 +95,7 @@ class UserRoleGroupValidationTest extends TestCase
 
         $this->postJson('/api/users', [
             'name' => 'Admin Two',
+            'username' => 'admin2',
             'email' => 'admin2@example.com',
             'password' => 'password123',
             'role' => 'admin',

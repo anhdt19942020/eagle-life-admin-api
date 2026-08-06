@@ -26,6 +26,7 @@ class UserController extends Controller
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
                     ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('username', 'like', "%{$search}%")
                     ->orWhere('employee_code', 'like', "%{$search}%")
                     ->orWhere('phone', 'like', "%{$search}%");
             });
@@ -66,7 +67,7 @@ class UserController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
             'password' => 'required|string|min:8',
-            'username' => 'nullable|string|max:255|unique:users',
+            'username' => 'required|string|max:255|unique:users',
             'phone' => 'nullable|string|max:20|unique:users',
             'avatar' => 'nullable|string',
             'role' => 'nullable|string|exists:roles,name',
@@ -138,7 +139,7 @@ class UserController extends Controller
             'name' => 'sometimes|string|max:255',
             'email' => 'sometimes|string|email|max:255|unique:users,email,'.$id,
             'password' => 'nullable|string|min:8',
-            'username' => 'nullable|string|max:255|unique:users,username,'.$id,
+            'username' => 'sometimes|required|string|max:255|unique:users,username,'.$id,
             'phone' => 'nullable|string|max:20|unique:users,phone,'.$id,
             'avatar' => 'nullable|string',
             'role' => 'nullable|string|exists:roles,name',
