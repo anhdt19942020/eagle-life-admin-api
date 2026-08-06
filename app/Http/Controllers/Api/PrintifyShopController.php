@@ -28,7 +28,10 @@ class PrintifyShopController extends Controller
             ->with(['account', 'assignedUser'])
             ->withExists([
                 'orders as has_order_conflicts' => fn ($query) => $query->where('has_conflict', true),
+                'assignedUser as has_assigned_user',
             ])
+            // Assigned holders first so ops can find reserved shops quickly; title within each group.
+            ->orderByDesc('has_assigned_user')
             ->orderBy('title');
 
         // Default management list: active shops (includes closed).

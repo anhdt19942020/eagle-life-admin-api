@@ -624,6 +624,7 @@ Nếu `Custom Label` trống → để `null`. Khi preview/create Printify: reso
 - **Đường dẫn**: `GET /printify/shops`
 - **Permission**: `printify.catalog.view`
 - **Query**: `active_only` (default `true` nếu không gửi), `open_only` (optional). Quản lý shop: mặc định chỉ `is_active`. Picker tạo đơn: `active_only=1&open_only=1`.
+- **Sort**: shop **đã gán user** trước, rồi `title` A→Z trong từng nhóm.
 
 **Response:** `{ status, message, data }` với `data` là **paginator**. Item gồm `id` (local), `printify_shop_id`, `title`, `default_sku`, `is_active`, `is_open`, `open_state_changed_at`, `orders_sync_state`, `orders_sync_completed_at`, `manual_approval_confirmed_at`, `synced_at`, `ready_for_creation`.
 
