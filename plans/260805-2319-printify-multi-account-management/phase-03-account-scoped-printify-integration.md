@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Account-scoped Printify integration"
-status: pending
+status: completed
 priority: P1
 effort: "10-13h"
 dependencies: [1, 2]
@@ -12,6 +12,9 @@ dependencies: [1, 2]
 ## Overview
 
 Remove the runtime dependency on one global Printify token. Make client, shop sync, scheduled commands, catalog access, and order preview/create resolve the account from the selected/assigned shop, with server-side assignment enforcement for seller and group leader.
+
+<!-- Updated: Validation Session 1 - rebaseline: factory/client/account-scoped sync+order-create already in tree; cook finishes callers, policy, order resolver, commands, locks, and integration tests -->
+**Rebaseline (Validation Session 1):** Do **not** re-implement `PrintifyClientFactory` or rewrite already-account-scoped sync/order-create service cores. Remaining work is wiring + enforcement + tests.
 
 ## Context links
 
@@ -50,21 +53,27 @@ Remove the runtime dependency on one global Printify token. Make client, shop sy
 ## Architecture
 
 ```text
-PrintifyClient::forAccount(account)
+PrintifyClientFactory::for(account)
   └─ immutable token + shared base URL/retry settings
+```
+<!-- Updated: Validation Session 1 - diagram matches factory already in tree; was PrintifyClient::forAccount -->
 
+```text
 sync(account)
   └─ lock printify:sync:account:{id}
+  └─ shop lock printify:sync:shop:{accountId}:{remoteId}
   └─ query/update shops where printify_account_id = account.id
+  └─ cross-account remote ID → abort/error (no silent skip)
 
 order request
   ├─ admin: validate request shop_id → shop
   └─ seller/leader: user.printifyShop → shop
+       └─ spoofed shop_id ≠ assignment → 422
        └─ require shop.account.is_active
        └─ scoped client posts to /shops/{remote_id}/orders.json
 ```
-
-The non-admin resolver must not use a request-provided `shop_id`. During rolling deployment it may accept an old field for compatibility, but it still resolves the authenticated user's assignment and cannot be redirected by that field.
+The non-admin resolver must not use a request-provided `shop_id`. <!-- Updated: Validation Session 1 - dual-side FE+BE; spoof → 422 -->
+**Validation Session 1:** Always resolve seller/leader from `auth()->user()->printifyShop`. If the request includes a `shop_id` that differs from the assignment, return `422` with a stable code (do not silently ignore and do not use the spoofed shop). Phase 4 must remove seller/leader shop picker/`shop_id` payloads so the happy path never sends that field.
 
 The existing `POST /printify/shops/sync` endpoint requires `account_id` and its `printify.sync` permission becomes **admin-only** (see the plan-level contract decision). The controller loads that active account and passes it to `PrintifySyncService::syncShops`. The account management page calls this same endpoint for account-1 or another selected account.
 
@@ -108,64 +117,65 @@ Implement the ownership check once — a single policy or a small shared guard u
 
 ## Implementation Steps
 
-1. Add `PrintifyClientFactory::for(PrintifyAccount $account): PrintifyClient`, which decrypts the key only inside client setup and retains base URL/timeout/retry configuration. Change `PrintifySyncService`, `PrintifyOrderPreviewService`, and `PrintifyOrderCreateService` constructors to depend on the factory instead of `PrintifyClient`, and update every container-resolved construction site in app and test code. Remove the normal request fallback to the environment token after bootstrap.
-2. Change `PrintifySyncService::syncShops` to accept an account. Scope remote IDs, upserts, deactivation, and the account lock by account id; reject an impossible local remote-ID/account mismatch rather than silently reassigning it.
-3. Update product/order/upload sync methods and scheduled commands to resolve each shop's account and use its client. Skip inactive accounts; report counts without credential details. Iterate accounts **sequentially** so per-account Printify rate limits are not multiplied by concurrency, keep `withoutOverlapping` on the schedule, and log a skipped-account count when a run does not finish the list within its window.
-4. Update shop listing/sync endpoints to accept account context and preserve existing readiness/open/default-SKU actions. Apply `PrintifyShopPolicy` to every `{shop}`-bound action and filter the non-admin index/product listing to the caller's assignment. Eager-load `account` on shop queries — `PrintifyShopController.php:26` uses a bare `PrintifyShop::query()` and allows `per_page` up to 1000, so account metadata on the resource would otherwise cause up to 1000 extra queries. Do not expose API keys through shop resources.
-5. Implement one shared order shop resolver in the controller/service boundary: admin validates request shop; seller/leader loads `auth()->user()->printifyShop`; any absent/inactive relation returns a stable `422` code before preview/create.
-6. Make preview and create verify account active before readiness/remote work. Keep local idempotency keys and Printify URL payloads unchanged.
-7. Add explicit tests for two accounts with different fake bearer tokens, cross-account sync deactivation, account-specific locks, assignment spoofing, and zero HTTP calls on preflight errors.
-8. Remove or quarantine normal runtime use of `PRINTIFY_TOKEN`; retain it only for the one-time bootstrap command and documented rollout window.
+1. **Verify (already done) then skip re-implementation:** Confirm `PrintifyClientFactory::for(PrintifyAccount)` and that Sync/OrderCreate depend on the factory, not a constructor-injected `PrintifyClient`. Quarantine normal runtime `PRINTIFY_TOKEN` (bootstrap-only). Do not rebuild this core unless a gap is found.
+2. **Fail loudly on cross-account mismatch:** Change shop sync so a remote shop ID already owned by another account **throws/aborts** (no silent `reject`/skip). Scope upserts, deactivation, and locks by account id. Shop lock key: `printify:sync:shop:{accountId}:{remoteId}`.
+3. Update product/order/upload sync **callers** (controllers + scheduled commands) to pass each shop's account. Skip inactive accounts; iterate accounts **sequentially**; keep `withoutOverlapping`; log skipped-account counts when a run does not finish within its window.
+4. Shop listing/sync endpoints: **`account_id` required** on `POST /printify/shops/sync` (no default to account 1). Apply `PrintifyShopPolicy` to every `{shop}` action; filter non-admin index/product listing to the caller's assignment; eager-load `account`. Do not expose API keys.
+5. Shared order shop resolver: admin validates request shop; seller/leader loads assignment; absent/inactive → stable `422` `data.code`; **spoofed `shop_id` ≠ assignment → `422`** (never use the spoofed shop).
+6. Preview/create verify account active before readiness/remote work. Keep idempotency keys and Printify URL payloads unchanged.
+7. **Own integration test rewrite in this phase** (Validation Session 1): update `PrintifyClientTest`, `PrintifySyncTest`, `PrintifyShopSyncApiTest`, `PrintifyOrderPreviewTest`, `PrintifyOrderCreateTest`, plus any test still resolving `app(PrintifyClient::class)` or calling account-less `syncShops()` / setting global token for HTTP. Cover two-account bearer isolation, cross-account sync abort, account-keyed locks, spoof `422`, zero HTTP on preflight errors.
+8. Grep for remaining runtime `config('services.printify.token')` HTTP paths; leave bootstrap + `.env.example` rollout window only.
 
 ## Test scenario matrix
 
 | Scenario | Expected result | Verification owner |
 |---|---|---|
-| Account A client request | Bearer token A only | Phase 5 client test |
-| Account B client request after A | Bearer token B; no shared token state | Phase 5 client test |
-| Sync account A missing shop | Only A's missing shop deactivates | Phase 5 sync test |
-| Sync account A with existing shop owned by B | Fail safely; never reassign silently | Phase 5 sync test |
-| Parallel account locks | A and B do not block each other; same account does | Phase 5 sync test |
-| Seller sends another shop ID | Assigned shop is used or request is rejected; other shop never used | Phase 5 order test |
-| Leader opens/closes/re-SKUs another account's shop | `403`; target shop unchanged; no HTTP sent | Phase 5 authorization test |
-| Leader calls shop sync | `403` — permission is admin-only | Phase 5 authorization test |
-| Leader lists shops/products | Only the assigned shop is returned | Phase 5 authorization test |
-| Admin lists 1000 shops with account metadata | Bounded query count; `account` eager-loaded | Phase 5 shop list test |
-| Seller has no assignment | `422 printify_shop_assignment_required`; no HTTP sent | Phase 5 order test |
-| Assigned account inactive | `422/409` stable account-inactive error; no HTTP sent | Phase 5 order test |
-| Admin selects shop | Selected active account shop is used | Phase 5 order test |
-| Scheduled sync | Active accounts processed; inactive accounts skipped | Phase 5 command test |
+| Account A client request | Bearer token A only | Phase 3 client test |
+| Account B client request after A | Bearer token B; no shared token state | Phase 3 client test |
+| Sync account A missing shop | Only A's missing shop deactivates | Phase 3 sync test |
+| Sync account A with existing shop owned by B | Sync aborts/errors; B's shop unchanged; never silent skip | Phase 3 sync test |
+| Parallel account locks | A and B do not block each other; same account does; shop lock includes account id | Phase 3 sync test |
+| Seller sends another shop ID | `422`; assigned shop never replaced by spoof | Phase 3 order test |
+| Leader opens/closes/re-SKUs another account's shop | `403`; target shop unchanged; no HTTP sent | Phase 3 authorization test |
+| Leader calls shop sync | `403` — permission is admin-only | Phase 3 authorization test |
+| Leader lists shops/products | Only the assigned shop is returned | Phase 3 authorization test |
+| Admin lists 1000 shops with account metadata | Bounded query count; `account` eager-loaded | Phase 3 shop list test |
+| Seller has no assignment | `422 printify_shop_assignment_required`; no HTTP sent | Phase 3 order test |
+| Assigned account inactive | `422/409` stable account-inactive error; no HTTP sent | Phase 3 order test |
+| Admin selects shop | Selected active account shop is used | Phase 3 order test |
+| Scheduled sync | Active accounts processed; inactive accounts skipped | Phase 3 command test |
 
 ## Function/interface checklist
 
-- [ ] No service holds a constructor-injected `PrintifyClient`; every client comes from `PrintifyClientFactory` with an explicit account.
-- [ ] Every `PrintifyClient` caller has an explicit account source.
-- [ ] Scheduled account iteration is sequential and bounded by the schedule window.
-- [ ] `syncShops` has no account-less production path.
-- [ ] Every sync lock includes account identity where state can cross accounts.
-- [ ] The order resolver is shared by preview and create.
-- [ ] Non-admin input cannot select a shop outside `User::printifyShop` — on order routes **and** on every shop/product/readiness route.
-- [ ] The ownership rule exists in exactly one place (policy/guard), not copied per controller method.
-- [ ] No normal runtime path reads `config('services.printify.token')` for outbound HTTP.
+- [x] No service holds a constructor-injected `PrintifyClient`; every client comes from `PrintifyClientFactory` with an explicit account.
+- [x] Every `PrintifyClient` caller has an explicit account source.
+- [x] Scheduled account iteration is sequential and bounded by the schedule window.
+- [x] `syncShops` has no account-less production path.
+- [x] Every sync lock includes account identity where state can cross accounts.
+- [x] The order resolver is shared by preview and create.
+- [x] Non-admin input cannot select a shop outside `User::printifyShop` — on order routes **and** on every shop/product/readiness route.
+- [x] The ownership rule exists in exactly one place (policy/guard), not copied per controller method.
+- [x] No normal runtime path reads `config('services.printify.token')` for outbound HTTP.
 
 ## Dependency map
 
 - Phase 1 supplies encrypted credentials and account/shop FKs.
 - Phase 2 supplies active-account lookup, user assignment, seller permission, and safe user context.
 - Phase 3 unblocks the frontend: `/me`, shop list, sync, and order endpoints have their final contracts.
-- Phase 5 owns regression tests for all changed callers and scheduled commands.
+- Phase 3 owns integration/regression tests for account-scoped client, sync, orders, and scheduled callers (Validation Session 1). Phase 5 retains account CRUD/bootstrap/assignment suites, docs, and rollout.
 
 ## Success Criteria
 
-- [ ] Two accounts can sync/create through different bearer tokens in the same process without cross-use.
-- [ ] Shop sync cannot deactivate or move another account's shop.
-- [ ] Seller/leader preview and create use the assigned shop regardless of request payload.
-- [ ] Missing/inactive assignment fails before Printify HTTP.
-- [ ] Admin shop selection remains functional and account-scoped.
-- [ ] Schedules no longer depend on one global token or global account lock.
+- [x] Two accounts can sync/create through different bearer tokens in the same process without cross-use.
+- [x] Shop sync aborts on cross-account remote ID ownership; cannot deactivate or move another account's shop.
+- [x] Seller/leader preview and create use only the assigned shop; spoofed `shop_id` → `422`.
+- [x] Missing/inactive assignment fails before Printify HTTP.
+- [x] Admin shop selection remains functional; sync requires `account_id`.
+- [x] Schedules no longer depend on one global token or global account lock; shop locks include account id.
+- [x] Updated Printify integration feature tests pass under the multi-account contract.
 
 ## Risk Assessment
 
 - A missed scheduled command can still use a legacy global client. Mitigation: contract checklist plus grep all `PrintifyClient` instantiation/callers and run command tests.
 - Client construction can accidentally decrypt the key multiple times or retain it longer than needed. Mitigation: immutable request-scoped client, no static token cache, no logging.
-- Rolling deployment may send old `shop_id` fields. Mitigation: backend resolver ignores non-admin selection and accepts old payload shape until FE rollout completes.
+- Old FE may still send `shop_id` until Phase 4. Mitigation: BE returns `422` on spoof (never uses foreign shop); Phase 4 removes seller/leader picker and must ship after API. <!-- Updated: Validation Session 1 -->

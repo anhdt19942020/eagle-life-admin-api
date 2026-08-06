@@ -30,7 +30,8 @@ Protect the new security and assignment contracts with API feature tests, update
 
 - API uses PHPUnit feature tests with `DatabaseMigrations`, SQLite in-memory, Sanctum, Spatie permissions, and `Http::fake`.
 - Existing Printify tests assume one config token and request `shop_id`; they must be updated to create accounts/assign users rather than weakening the new security contract.
-- Ten Printify test files exist today. The authoritative list of files that set `services.printify.token` is `grep -rn "services.printify.token" tests/` — run it before starting and after Phase 3 so no token-dependent test is missed. As of planning it matches `PrintifyClientTest`, `PrintifyOrderCreateTest`, `PrintifyShopOpenTest`, `PrintifyShopSyncApiTest`, and `PrintifySyncTest`.
+- <!-- Updated: Validation Session 1 --> **Ownership split:** Phase 3 rewrites/updates account-scoped **integration** tests (`PrintifyClientTest`, `PrintifySyncTest`, `PrintifyShopSyncApiTest`, `PrintifyOrderPreviewTest`, `PrintifyOrderCreateTest`, and any other file still using global token / account-less sync). Phase 5 creates account/bootstrap/assignment suites, expands authorization ownership cases, updates remaining shop-open/default-SKU/selection tests if not already fixed in Phase 3, and owns docs/rollout/FE build gate.
+- Ten Printify test files exist today. The authoritative list of files that set `services.printify.token` is `grep -rn "services.printify.token" tests/` — run it before starting Phase 3 and again before Phase 5 closeout. As of planning it matches `PrintifyClientTest`, `PrintifyOrderCreateTest`, `PrintifyShopOpenTest`, `PrintifyShopSyncApiTest`, and `PrintifySyncTest`.
 - Frontend has no unit/e2e test script, so production build plus a manual smoke matrix is the honest verification boundary.
 
 ## Requirements
@@ -76,7 +77,7 @@ Application rollback means reverting API/FE code while retaining the additive ac
 |---|---|---|
 | Credential cross-use | two account clients | Authorization headers are different and correct |
 | Secret disclosure | account/user/login/shop responses | No `api_key`, plaintext fake token, or nested credential field |
-| Account isolation | sync A with shops A+B | Only A state changes; mismatch is rejected |
+| Account isolation | sync A with shops A+B | Only A state changes; **mismatch aborts** (no silent skip) |
 | Assignment sharing | assign same shop twice | Second request fails and DB remains unchanged |
 | Assignment spoofing | seller sends shop B while assigned A | A is used or request rejected; B never receives HTTP |
 | Cross-account shop mutation | leader opens/closes/re-SKUs a shop it does not own | `403`; target row unchanged; zero outbound requests |
