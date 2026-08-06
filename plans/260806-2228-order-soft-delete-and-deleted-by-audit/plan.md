@@ -104,6 +104,6 @@ $order->delete(); // SoftDeletes
 
 ## Residual (document, do not fix here)
 
-- `apiResource('orders')` destroy is only `auth:sanctum` — Spatie `orders.delete` not enforced on route (pre-existing). Soft delete reduces blast radius; optional follow-up: attach `permission:orders.delete`.
+- ~~`apiResource('orders')` destroy lacks `permission:orders.delete`~~ → owned by `plans/260806-2237-order-delete-permission-and-dual-layer-menu-auth/` (seller must not delete; gate destroy + fix seller-as-deleter soft-delete tests).
 
 <!-- slug: order-soft-delete-and-deleted-by-audit -->

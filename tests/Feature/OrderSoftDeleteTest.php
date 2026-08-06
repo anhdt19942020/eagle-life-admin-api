@@ -44,14 +44,14 @@ class OrderSoftDeleteTest extends TestCase
 
     public function test_destroy_soft_deletes_and_sets_deleted_by(): void
     {
-        $seller = $this->actingAsRole('seller');
-        $order = $this->makeOrder($seller->id, 'SOFT-1');
+        $admin = $this->actingAsRole('admin');
+        $order = $this->makeOrder($admin->id, 'SOFT-1');
 
         $this->deleteJson('/api/orders/'.$order->id)
             ->assertOk();
 
         $this->assertSoftDeleted('orders', ['id' => $order->id]);
-        $this->assertSame($seller->id, Order::withTrashed()->findOrFail($order->id)->deleted_by);
+        $this->assertSame($admin->id, Order::withTrashed()->findOrFail($order->id)->deleted_by);
 
         $ids = collect($this->getJson('/api/orders')->assertOk()->json('data.data'))->pluck('id');
         $this->assertFalse($ids->contains($order->id));
@@ -62,8 +62,11 @@ class OrderSoftDeleteTest extends TestCase
     {
         $seller = $this->actingAsRole('seller');
         $order = $this->makeOrder($seller->id, 'SOFT-2');
+
+        $this->actingAsRole('admin');
         $this->deleteJson('/api/orders/'.$order->id)->assertOk();
 
+        Sanctum::actingAs($seller);
         $this->getJson('/api/orders?trashed=only')->assertForbidden();
 
         $this->actingAsRole('admin');
@@ -75,8 +78,11 @@ class OrderSoftDeleteTest extends TestCase
     {
         $seller = $this->actingAsRole('seller');
         $order = $this->makeOrder($seller->id, 'SOFT-3');
+
+        $this->actingAsRole('admin');
         $this->deleteJson('/api/orders/'.$order->id)->assertOk();
 
+        Sanctum::actingAs($seller);
         $this->postJson('/api/orders/'.$order->id.'/restore')->assertForbidden();
 
         $this->actingAsRole('admin');
