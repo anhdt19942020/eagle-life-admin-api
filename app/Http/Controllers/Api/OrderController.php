@@ -41,9 +41,12 @@ class OrderController extends Controller
             $query->where('seller_id', $request->seller_id);
         }
 
+        $summary = $this->summaryStatsFor($query);
+
         $orders = $query->with($with)->latest('ebay_created_at')->paginate($request->per_page ?? 25);
         $payload = $orders->toArray();
         $payload['seller_stats'] = $sellerStats;
+        $payload['summary'] = $summary;
 
         return $this->success($payload, 'Lấy danh sách đơn hàng thành công');
     }
@@ -199,5 +202,35 @@ class OrderController extends Controller
                 ] : null,
             ];
         })->values()->all();
+    }
+
+    /**
+     * Aggregate totals (orders, line items, eBay amounts) for the current
+     * visibility + filters, including seller_id.
+     *
+     * @param  Builder<Order>  $query
+     * @return array{total_orders: int, total_line_items: int, total_quantity: int, total_ebay_amount: string, total_shipping_amount: string}
+     */
+    private function summaryStatsFor(Builder $query): array
+    {
+        $totals = (clone $query)
+            ->reorder()
+            ->leftJoin('order_line_items', 'order_line_items.order_id', '=', 'orders.id')
+            ->selectRaw(
+                'COUNT(DISTINCT orders.id) as total_orders, '.
+                'COUNT(order_line_items.id) as total_line_items, '.
+                'COALESCE(SUM(order_line_items.quantity), 0) as total_quantity, '.
+                'COALESCE(SUM(order_line_items.total_amount), 0) as total_ebay_amount, '.
+                'COALESCE(SUM(order_line_items.shipping_amount), 0) as total_shipping_amount'
+            )
+            ->first();
+
+        return [
+            'total_orders' => (int) $totals->total_orders,
+            'total_line_items' => (int) $totals->total_line_items,
+            'total_quantity' => (int) $totals->total_quantity,
+            'total_ebay_amount' => number_format((float) $totals->total_ebay_amount, 2, '.', ''),
+            'total_shipping_amount' => number_format((float) $totals->total_shipping_amount, 2, '.', ''),
+        ];
     }
 }
