@@ -344,7 +344,7 @@ Residual: import vẫn có thể ghi `seller_code` cross-group (chưa siết tro
 | `page`        | Trang                                           | `page=1`                 |
 | `per_page`    | Số dòng/trang (mặc định 25)                     | `per_page=20`            |
 
-**Response:** envelope `{ status, message, data }` với `data` là Laravel paginator (`data`, `links`, `meta`) **cộng** `seller_stats`. Mỗi item gồm `ebay_order_id`, `ebay_order_number`, `printify_order_id`, `ebay_created_at`, nested `buyer` / `seller` (`id`, `name`, `employee_code`) và `line_items` chỉ lấy `id`, `order_id`, `title` để hiển thị thông tin sản phẩm trong danh sách.
+**Response:** envelope `{ status, message, data }` với `data` là Laravel paginator (`data`, `links`, `meta`) **cộng** `seller_stats`. Mỗi item gồm `ebay_order_id`, `ebay_order_number`, `printify_order_id`, `ebay_created_at`, nested `buyer` / `seller` (`id`, `name`, `employee_code`) và `line_items` chỉ lấy `id`, `order_id`, `title` để hiển thị thông tin sản phẩm trong danh sách. Mỗi item cũng có sẵn `ebay_export_rows` (nguyên payload CSV) — FE dùng `My Item Note` / `Buyer Country` từ đây cho 2 cột trong bảng Mapping.
 
 **`seller_stats`** — tổng số đơn theo từng seller trong phạm vi visibility + các filter hiện tại **trừ** `seller_id` (để FE vẫn hiện đủ option lọc khi đang chọn 1 seller). Sắp xếp `orders_count` giảm dần. Seller chưa gán → `seller_id: null`, `seller: null`.
 

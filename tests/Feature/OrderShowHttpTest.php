@@ -159,4 +159,26 @@ class OrderShowHttpTest extends TestCase
             ->assertJsonPath('data.line_items.0.item_number', '123')
             ->assertJsonPath('data.line_items.0.ebay_raw.Item Title', 'Shirt');
     }
+
+    public function test_order_index_exposes_ebay_export_rows_for_my_item_note_and_country_columns(): void
+    {
+        $user = User::factory()->create();
+        $user->assignRole('admin');
+        Permission::findOrCreate('orders.import', 'api');
+        $user->givePermissionTo('orders.import');
+        Sanctum::actingAs($user);
+
+        $csv = "Order Number,Sale Date,Transaction ID,Item Number,Item Title,Custom Label,Variation Details,Quantity,Sold For,Shipping And Handling,Total Price,Buyer Username,Buyer Name,Buyer Email,Buyer Country,My Item Note,Ship To Name,Ship To Phone,Ship To Address 1,Ship To Address 2,Ship To City,Ship To State,Ship To Zip,Ship To Country\n"
+            ."23-99999-00001,Aug-02-26,T-2,456,Mug,,[Color:Blue],1,\$8.00,\$0.00,\$8.00,buyeruser,Jane Buyer,jane@members.ebay.com,US,Handle with care,Jane Buyer,+1 555-0100,1 Main St,,Anytown,CA,90001,US\n";
+
+        app(OrderImportService::class)->importFromCsv(
+            UploadedFile::fake()->createWithContent('orders.csv', $csv),
+            $user->id
+        );
+
+        $this->getJson('/api/orders')
+            ->assertOk()
+            ->assertJsonPath('data.data.0.ebay_export_rows.0.My Item Note', 'Handle with care')
+            ->assertJsonPath('data.data.0.ebay_export_rows.0.Buyer Country', 'US');
+    }
 }
