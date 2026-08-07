@@ -170,17 +170,22 @@ class OrderController extends Controller
     }
 
     /**
-     * Order counts per seller within the current visibility + filters (excluding seller_id).
+     * Order counts + eBay totals per seller within the current visibility + filters (excluding seller_id).
      *
      * @param  Builder<Order>  $query
-     * @return list<array{seller_id: int|null, orders_count: int, seller: array{id: int, name: string, employee_code: string|null}|null}>
+     * @return list<array{seller_id: int|null, orders_count: int, total_ebay_amount: string, seller: array{id: int, name: string, employee_code: string|null}|null}>
      */
     private function sellerStatsFor(Builder $query): array
     {
         $counts = (clone $query)
             ->reorder()
-            ->selectRaw('seller_id, COUNT(*) as orders_count')
-            ->groupBy('seller_id')
+            ->leftJoin('order_line_items', 'order_line_items.order_id', '=', 'orders.id')
+            ->selectRaw(
+                'orders.seller_id as seller_id, '.
+                'COUNT(DISTINCT orders.id) as orders_count, '.
+                'COALESCE(SUM(order_line_items.total_amount), 0) as total_ebay_amount'
+            )
+            ->groupBy('orders.seller_id')
             ->orderByDesc('orders_count')
             ->get();
 
@@ -195,6 +200,7 @@ class OrderController extends Controller
             return [
                 'seller_id' => $row->seller_id !== null ? (int) $row->seller_id : null,
                 'orders_count' => (int) $row->orders_count,
+                'total_ebay_amount' => number_format((float) $row->total_ebay_amount, 2, '.', ''),
                 'seller' => $seller ? [
                     'id' => $seller->id,
                     'name' => $seller->name,

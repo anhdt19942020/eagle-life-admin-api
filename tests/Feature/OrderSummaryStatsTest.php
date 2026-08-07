@@ -119,13 +119,19 @@ class OrderSummaryStatsTest extends TestCase
             'shipping_amount' => 99.00,
         ]);
 
-        $summary = $this->getJson("/api/orders?seller_id={$sellerOne->id}")
-            ->assertOk()
-            ->json('data.summary');
+        $response = $this->getJson("/api/orders?seller_id={$sellerOne->id}")->assertOk();
 
+        $summary = $response->json('data.summary');
         $this->assertSame(1, $summary['total_orders']);
         $this->assertSame('100.00', $summary['total_ebay_amount']);
         $this->assertSame('10.00', $summary['total_shipping_amount']);
+
+        // seller_stats ignores the seller_id filter, so both sellers appear with their own totals.
+        $sellerStats = collect($response->json('data.seller_stats'))->keyBy('seller_id');
+        $this->assertSame(1, $sellerStats[$sellerOne->id]['orders_count']);
+        $this->assertSame('100.00', $sellerStats[$sellerOne->id]['total_ebay_amount']);
+        $this->assertSame(1, $sellerStats[$sellerTwo->id]['orders_count']);
+        $this->assertSame('999.00', $sellerStats[$sellerTwo->id]['total_ebay_amount']);
     }
 
     public function test_summary_excludes_soft_deleted_orders_by_default(): void
