@@ -23,6 +23,7 @@ class Order extends Model
         'buyer_id',
         'seller_id',
         'ebay_created_at',
+        'printify_created_at',
     ];
 
     protected $casts = [

@@ -153,6 +153,14 @@ class OrderController extends Controller
             $query->whereDate('ebay_created_at', '<=', $request->to_date);
         }
 
+        if ($request->filled('printify_from_date')) {
+            $query->whereDate('printify_created_at', '>=', $request->printify_from_date);
+        }
+
+        if ($request->filled('printify_to_date')) {
+            $query->whereDate('printify_created_at', '<=', $request->printify_to_date);
+        }
+
         if ($request->has('no_printify') && $request->no_printify) {
             $query->whereNull('printify_order_id');
         }

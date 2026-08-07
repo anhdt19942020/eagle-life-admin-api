@@ -340,6 +340,8 @@ Residual: import vẫn có thể ghi `seller_code` cross-group (chưa siết tro
 | `buyer_id`    | Lọc buyer                                       | `buyer_id=5`             |
 | `from_date`   | Từ ngày `ebay_created_at` (yyyy-mm-dd)          | `from_date=2026-01-01`   |
 | `to_date`     | Đến ngày                                        | `to_date=2026-12-31`     |
+| `printify_from_date` | Từ ngày `printify_created_at` (nháp Printify, yyyy-mm-dd); NULL bị loại khi filter | `printify_from_date=2026-01-01` |
+| `printify_to_date` | Đến ngày `printify_created_at` | `printify_to_date=2026-12-31` |
 | `no_printify` | `1`/`true` → chỉ đơn chưa có `printify_order_id` | `no_printify=1`         |
 | `page`        | Trang                                           | `page=1`                 |
 | `per_page`    | Số dòng/trang (mặc định 25)                     | `per_page=20`            |
@@ -549,6 +551,8 @@ File export từ eBay; parser bỏ dòng rỗng trước header, group theo `Ord
 **Multi-item eBay:** dòng đầu có thể có Ship To nhưng trống `Item Number`; dòng tiếp theo có `Item Number` nhưng trống Ship To. Parser inherit Ship To/buyer trong cùng `Order Number`, bỏ dòng summary không có `Item Number`, và default `Shipping And Handling` / `Total Price` trống trên continuation.
 
 **Seller attribution:** `seller_id` = user đang import khi tạo mới hoặc khi đơn đang `seller_id = null`. Re-import **không** ghi đè seller đã gán.
+
+**Date semantics:** `ebay_created_at` lấy từ CSV `Sale Date`; nếu thiếu/không parse được → fallback `now()` lúc import. `printify_created_at` (Ngày tạo) set lần đầu khi tạo nháp Printify (`now()`), không ghi đè nếu đã có.
 
 **Soft-delete revive:** nếu `ebay_order_number` trùng đơn đang soft-deleted → restore cùng `id`, clear `deleted_by`, rồi upsert như updated (không tạo row mới).
 

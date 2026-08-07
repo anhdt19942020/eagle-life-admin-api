@@ -139,6 +139,7 @@ class PrintifyOrderCreateTest extends TestCase
             'intent_state' => 'created',
         ]);
         $this->assertSame('pog-1', $order->fresh()->printify_order_id);
+        $this->assertNotNull($order->fresh()->printify_created_at);
     }
 
     public function test_create_is_idempotent_when_ebay_number_already_linked(): void

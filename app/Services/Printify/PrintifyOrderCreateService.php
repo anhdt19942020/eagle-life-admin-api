@@ -67,7 +67,10 @@ class PrintifyOrderCreateService
                 'synced_at' => now(),
             ]);
 
-            $order->forceFill(['printify_order_id' => $remoteId])->save();
+            $order->forceFill([
+                'printify_order_id' => $remoteId,
+                'printify_created_at' => $order->printify_created_at ?? now(),
+            ])->save();
 
             return $record;
         });
