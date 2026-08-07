@@ -62,7 +62,7 @@ class OrderController extends Controller
             $query->whereNull('printify_order_id');
         }
 
-        $orders = $query->latest('ebay_created_at')->paginate($request->per_page ?? 15);
+        $orders = $query->latest('ebay_created_at')->paginate($request->per_page ?? 25);
 
         return $this->success($orders, 'Lấy danh sách đơn hàng thành công');
     }
