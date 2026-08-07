@@ -342,9 +342,27 @@ Residual: import vẫn có thể ghi `seller_code` cross-group (chưa siết tro
 | `to_date`     | Đến ngày                                        | `to_date=2026-12-31`     |
 | `no_printify` | `1`/`true` → chỉ đơn chưa có `printify_order_id` | `no_printify=1`         |
 | `page`        | Trang                                           | `page=1`                 |
-| `per_page`    | Số dòng/trang (mặc định 15)                     | `per_page=20`            |
+| `per_page`    | Số dòng/trang (mặc định 25)                     | `per_page=20`            |
 
-**Response:** envelope `{ status, message, data }` với `data` là Laravel paginator (`data`, `links`, `meta`). Mỗi item gồm `ebay_order_id`, `ebay_order_number`, `printify_order_id`, `ebay_created_at`, nested `buyer` / `seller` (`id`, `name`, `employee_code`) và `line_items` chỉ chứa `id`, `order_id`, `title` để hiển thị thông tin sản phẩm trong danh sách.
+**Response:** envelope `{ status, message, data }` với `data` là Laravel paginator (`data`, `links`, `meta`) **cộng** `seller_stats`. Mỗi item gồm `ebay_order_id`, `ebay_order_number`, `printify_order_id`, `ebay_created_at`, nested `buyer` / `seller` (`id`, `name`, `employee_code`) và `line_items` chỉ lấy `id`, `order_id`, `title` để hiển thị thông tin sản phẩm trong danh sách.
+
+**`seller_stats`** — tổng số đơn theo từng seller trong phạm vi visibility + các filter hiện tại **trừ** `seller_id` (để FE vẫn hiện đủ option lọc khi đang chọn 1 seller). Sắp xếp `orders_count` giảm dần. Seller chưa gán → `seller_id: null`, `seller: null`.
+
+```json
+"seller_stats": [
+    {
+        "seller_id": 3,
+        "orders_count": 12,
+        "seller": { "id": 3, "name": "Alice", "employee_code": "NV0001" }
+    },
+    {
+        "seller_id": null,
+        "orders_count": 2,
+        "seller": null
+    }
+]
+```
+
 
 ### 4.2. Chi tiết Đơn hàng
 

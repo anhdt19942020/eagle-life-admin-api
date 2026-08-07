@@ -1,5 +1,7 @@
 <?php
 
+// db-refresh-allow: matches existing Feature suite; phpunit uses isolated sqlite :memory: via DatabaseMigrations
+
 namespace Tests\Feature;
 
 use App\Models\User;
@@ -77,6 +79,54 @@ class OrderShowHttpTest extends TestCase
             ->assertJsonPath('data.data.0.seller.printify_shop_id', $shop->id)
             ->assertJsonPath('data.data.0.seller.printify_shop.id', $shop->id)
             ->assertJsonPath('data.data.0.seller.printify_shop.title', 'Alice Alice TT');
+    }
+
+    public function test_order_index_includes_seller_stats_ignoring_seller_id_filter(): void
+    {
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+        Sanctum::actingAs($admin);
+
+        $sellerA = User::factory()->create(['name' => 'Seller A']);
+        $sellerA->assignRole('seller');
+        $sellerB = User::factory()->create(['name' => 'Seller B']);
+        $sellerB->assignRole('seller');
+
+        Order::create([
+            'ebay_order_id' => 'ORD-A1',
+            'ebay_order_number' => 'ORD-A1',
+            'seller_id' => $sellerA->id,
+            'ebay_created_at' => '2026-08-02 12:00:00',
+        ]);
+        Order::create([
+            'ebay_order_id' => 'ORD-A2',
+            'ebay_order_number' => 'ORD-A2',
+            'seller_id' => $sellerA->id,
+            'ebay_created_at' => '2026-08-02 13:00:00',
+        ]);
+        Order::create([
+            'ebay_order_id' => 'ORD-B1',
+            'ebay_order_number' => 'ORD-B1',
+            'seller_id' => $sellerB->id,
+            'ebay_created_at' => '2026-08-02 14:00:00',
+        ]);
+        Order::create([
+            'ebay_order_id' => 'ORD-NULL',
+            'ebay_order_number' => 'ORD-NULL',
+            'seller_id' => null,
+            'ebay_created_at' => '2026-08-02 15:00:00',
+        ]);
+
+        $response = $this->getJson('/api/orders?seller_id='.$sellerA->id)->assertOk();
+
+        $listIds = collect($response->json('data.data'))->pluck('id');
+        $this->assertCount(2, $listIds);
+
+        $stats = collect($response->json('data.seller_stats'));
+        $this->assertSame(2, $stats->firstWhere('seller_id', $sellerA->id)['orders_count']);
+        $this->assertSame(1, $stats->firstWhere('seller_id', $sellerB->id)['orders_count']);
+        $this->assertSame(1, $stats->firstWhere('seller_id', null)['orders_count']);
+        $this->assertSame('Seller A', $stats->firstWhere('seller_id', $sellerA->id)['seller']['name']);
     }
 
     public function test_order_show_includes_fulfillment_address_line_items_and_export_rows(): void
