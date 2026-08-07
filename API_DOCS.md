@@ -639,11 +639,12 @@ Mỗi item còn có `readiness_issues`: mảng mã blocker ổn định (`shop_i
 - **Đường dẫn**: `POST /printify/shops/{shop}/ensure-default-sku`
 - **Permission**: `printify.shop-readiness.confirm`
 - **Path param**: `shop` = local `printify_shops.id`
-- **Body**: không có
-- Chạy đồng bộ trên server: dùng variant enabled unique đã sync local nếu có; nếu không, gọi Printify sync tối đa **1 product** rồi gán `default_sku` khi tìm được đúng 1 SKU enabled unique.
-- **Không** ghi đè `default_sku` đã có; **không** tự mở shop, confirm manual approval, hoàn tất orders sync, hay xóa conflict.
+- **Body** (optional): `{ "force": true|false }` — mặc định `false`.
+- Không `force`: dùng variant enabled unique đã sync local nếu có; nếu không, gọi Printify sync tối đa **1 product** rồi gán `default_sku` khi tìm được đúng 1 SKU enabled unique. **Không** ghi đè `default_sku` đã có (`code=default_sku_already_set`).
+- `force=true`: luôn sync lại tối đa **1 product** từ Printify, ưu tiên SKU enabled unique của product vừa sync, rồi **ghi đè** `default_sku` (`code=default_sku_refreshed`). Dùng khi product/SKU cũ đã bị xóa trên Printify.
+- **Không** tự mở shop, confirm manual approval, hoàn tất orders sync, hay xóa conflict.
 - Shop/account inactive → `422` (`printify_shop_not_ready` / `printify_account_inactive`). Không unique SKU sau sync → `422` `default_sku_not_resolved`. Lỗi Printify bất ngờ → `502` `default_sku_sync_failed` (chi tiết chỉ ở log).
-- **Success `data`:** `{ result: { code, status, sku, reason }, shop: PrintifyShopResource }` với `code` ∈ `default_sku_set` | `default_sku_already_set`.
+- **Success `data`:** `{ result: { code, status, sku, reason }, shop: PrintifyShopResource }` với `code` ∈ `default_sku_set` | `default_sku_already_set` | `default_sku_refreshed`.
 
 ### 6.3.1. Cập nhật default SKU của shop
 

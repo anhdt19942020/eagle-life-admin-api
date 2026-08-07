@@ -155,7 +155,12 @@ class PrintifyShopController extends Controller
             );
         }
 
-        $result = $ensurer->ensureForShop($shop, seedProduct: true);
+        $validated = $request->validate([
+            'force' => ['sometimes', 'boolean'],
+        ]);
+        $force = (bool) ($validated['force'] ?? false);
+
+        $result = $ensurer->ensureForShop($shop, seedProduct: true, force: $force);
 
         if ($result['status'] === 'failed') {
             return $this->error(
@@ -173,9 +178,11 @@ class PrintifyShopController extends Controller
             );
         }
 
-        $code = $result['reason'] === 'already_set'
-            ? 'default_sku_already_set'
-            : 'default_sku_set';
+        $code = match ($result['reason']) {
+            'already_set' => 'default_sku_already_set',
+            'forced' => 'default_sku_refreshed',
+            default => 'default_sku_set',
+        };
 
         $freshShop = PrintifyShop::query()
             ->with(['account', 'assignedUser'])
@@ -183,6 +190,12 @@ class PrintifyShopController extends Controller
                 'orders as has_order_conflicts' => fn ($query) => $query->where('has_conflict', true),
             ])
             ->findOrFail($shop->id);
+
+        $message = match ($code) {
+            'default_sku_refreshed' => 'Đã sync lại sản phẩm và cập nhật default SKU cho shop.',
+            'default_sku_set' => 'Đã sync một sản phẩm và đặt default SKU cho shop.',
+            default => 'Shop đã có default SKU.',
+        };
 
         return $this->success([
             'result' => [
@@ -192,9 +205,7 @@ class PrintifyShopController extends Controller
                 'reason' => $result['reason'],
             ],
             'shop' => new PrintifyShopResource($freshShop),
-        ], $code === 'default_sku_set'
-            ? 'Đã sync một sản phẩm và đặt default SKU cho shop.'
-            : 'Shop đã có default SKU.');
+        ], $message);
     }
 
     public function updateDefaultSku(Request $request, PrintifyShop $shop)

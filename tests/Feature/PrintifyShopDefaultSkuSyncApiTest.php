@@ -171,6 +171,59 @@ class PrintifyShopDefaultSkuSyncApiTest extends TestCase
         $this->assertSame('KEEP-SKU', $shop->fresh()->default_sku);
     }
 
+    public function test_force_overwrites_existing_default_sku_from_newest_synced_product(): void
+    {
+        $shop = $this->shopNeedingSku([
+            'printify_shop_id' => 608,
+            'default_sku' => 'STALE-SKU',
+        ]);
+        $stale = PrintifyProduct::create([
+            'printify_shop_id' => $shop->id,
+            'printify_product_id' => 'stale-prod',
+            'title' => 'Stale',
+            'synced_at' => now()->subDay(),
+        ]);
+        PrintifyProductVariant::create([
+            'printify_product_id' => $stale->id,
+            'printify_variant_id' => 801,
+            'sku' => 'STALE-SKU',
+            'title' => 'S',
+            'is_enabled' => true,
+        ]);
+
+        $this->configurePrintifyHttpBase();
+        Http::fake([
+            'printify.test/v1/shops/608/products.json*' => Http::response([
+                'data' => [
+                    [
+                        'id' => 'fresh-prod',
+                        'title' => 'Fresh Tee',
+                        'blueprint_id' => 1,
+                        'print_provider_id' => 2,
+                        'variants' => [
+                            ['id' => 91, 'sku' => 'FRESH-SKU', 'title' => 'M', 'is_enabled' => true, 'price' => 1000],
+                        ],
+                    ],
+                ],
+                'last_page' => 1,
+            ]),
+        ]);
+        $this->actingAdminConfirm();
+
+        $this->postJson("/api/printify/shops/{$shop->id}/ensure-default-sku", ['force' => true])
+            ->assertOk()
+            ->assertJsonPath('data.result.code', 'default_sku_refreshed')
+            ->assertJsonPath('data.result.sku', 'FRESH-SKU')
+            ->assertJsonPath('data.shop.default_sku', 'FRESH-SKU');
+
+        $this->assertSame('FRESH-SKU', $shop->fresh()->default_sku);
+        $this->assertTrue(
+            PrintifyProduct::where('printify_shop_id', $shop->id)
+                ->where('printify_product_id', 'fresh-prod')
+                ->exists()
+        );
+    }
+
     public function test_returns_default_sku_not_resolved_when_no_unique_sku(): void
     {
         $shop = $this->shopNeedingSku(['printify_shop_id' => 603]);
