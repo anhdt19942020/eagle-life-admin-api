@@ -397,6 +397,8 @@ class OrderImportService
             'variation' => $row['Variation Details'] ?? null,
             'quantity' => $quantity,
             'unit_price' => $price,
+            'shipping_amount' => $this->money($row['Shipping And Handling'] ?? null),
+            'total_amount' => $this->money($row['Total Price'] ?? null),
             'currency' => 'USD',
             'ebay_raw' => $this->sanitizeCsvPayload($row),
         ])->save();
