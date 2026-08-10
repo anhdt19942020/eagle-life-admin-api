@@ -308,6 +308,7 @@ class OrderImportService
             'UNITED KINGDOM' => 'GB',
             'GREAT BRITAIN' => 'GB',
             'ENGLAND' => 'GB',
+            'BULGARIA' => 'BG',
             'CANADA' => 'CA',
             'AUSTRALIA' => 'AU',
             'GERMANY' => 'DE',
@@ -372,7 +373,9 @@ class OrderImportService
         try {
             $this->countryCode(trim((string) $row['Ship To Country']));
         } catch (RuntimeException $exception) {
-            throw new RuntimeException("CSV row {$row['_row']} has an unsupported Ship To Country.", 0, $exception);
+            $country = trim((string) $row['Ship To Country']);
+
+            throw new RuntimeException("CSV row {$row['_row']} has an unsupported Ship To Country: {$country}.", 0, $exception);
         }
     }
     private function lineItemKey(array $row): string { $transaction = trim((string) ($row['Transaction ID'] ?? '')); return $transaction === '' ? 'fallback:'.$this->fallbackIdentity($row) : 'transaction:'.$transaction; }

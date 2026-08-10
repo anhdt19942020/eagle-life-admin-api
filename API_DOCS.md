@@ -571,10 +571,12 @@ File export từ eBay; parser bỏ dòng rỗng trước header, group theo `Ord
 | `Ship To Address 1`     | Địa chỉ                            |
 | `Ship To City`          | Thành phố                          |
 | `Ship To Zip`           | ZIP                                |
-| `Ship To Country`       | Country code                       |
+| `Ship To Country`       | Tên quốc gia hỗ trợ hoặc mã 2 ký tự |
 
 **Cột tùy chọn:** `Transaction ID`, `Item Title`, `Custom Label`, `Variation Details`, `Ship To Phone`, `Ship To Address 2`, `Ship To State`.  
 Nếu `Custom Label` trống → để `null`. Khi preview/create Printify: resolve `Custom Label` = `printify_product_variants.sku` trong shop đã chọn; nếu trống/không khớp → fallback `printify_shops.default_sku` của shop đó (set qua UI/API). Ambiguous SKU → `ready=false` + `errors`.
+
+`Ship To Country` chấp nhận tên quốc gia nằm trong mapping import hiện tại (vd `United States`, `Bulgaria`, `Vietnam`) hoặc mã quốc gia 2 ký tự (vd `US`, `BG`, `VN`). Nếu gặp tên quốc gia không hỗ trợ, API trả `422` theo error envelope hiện tại; `message` chứa số dòng CSV và giá trị country để người dùng sửa file.
 
 **Response success (200):**
 
@@ -599,7 +601,7 @@ Nếu `Custom Label` trống → để `null`. Khi preview/create Printify: reso
 ```json
 {
     "status": "error",
-    "message": "CSV thiếu cột Sale Date.",
+    "message": "CSV row 2 has an unsupported Ship To Country: Narnia.",
     "data": null
 }
 ```

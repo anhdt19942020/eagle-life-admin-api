@@ -139,6 +139,19 @@ class EbayImportHttpTest extends TestCase
             ->assertJsonPath('status', 'error');
     }
 
+    public function test_csv_import_unsupported_country_returns_actionable_422_message(): void
+    {
+        $this->actingImporter();
+        $csv = "Order Number,Sale Date,Item Number,Quantity,Sold For,Shipping And Handling,Total Price,Ship To Name,Ship To Address 1,Ship To City,Ship To Zip,Ship To Country\n"
+            ."13-14975-00010,Aug-02-26,123,1,\$10.00,\$0.00,\$10.00,Jane Doe,1 Main St,Austin,78701,Narnia\n";
+        $file = $this->csvUpload('orders.csv', $csv);
+
+        $this->post('/api/orders/import-csv', ['file' => $file], ['Accept' => 'application/json'])
+            ->assertUnprocessable()
+            ->assertJsonPath('status', 'error')
+            ->assertJsonPath('message', 'CSV row 2 has an unsupported Ship To Country: Narnia.');
+    }
+
     public function test_csv_import_invalid_date_returns_422_without_committing_orders(): void
     {
         $this->actingImporter();
