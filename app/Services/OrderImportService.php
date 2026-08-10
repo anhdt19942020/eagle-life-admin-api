@@ -12,6 +12,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use League\Csv\Reader;
 use RuntimeException;
+use Symfony\Component\Intl\Countries;
 
 class OrderImportService
 {
@@ -295,57 +296,38 @@ class OrderImportService
     private function countryCode(string $value): string
     {
         $trimmed = trim($value);
-        $upper = strtoupper($trimmed);
+        $upper = mb_strtoupper($trimmed, 'UTF-8');
 
-        if (preg_match('/^[A-Z]{2}$/', $upper) === 1) {
+        if (preg_match('/^[A-Z]{2}$/', $upper) === 1 && Countries::exists($upper)) {
             return $upper;
         }
 
-        $map = [
-            'UNITED STATES' => 'US',
+        $aliases = [
             'UNITED STATES OF AMERICA' => 'US',
             'USA' => 'US',
-            'UNITED KINGDOM' => 'GB',
             'GREAT BRITAIN' => 'GB',
             'ENGLAND' => 'GB',
-            'BULGARIA' => 'BG',
-            'CANADA' => 'CA',
-            'AUSTRALIA' => 'AU',
-            'GERMANY' => 'DE',
-            'FRANCE' => 'FR',
-            'ITALY' => 'IT',
-            'SPAIN' => 'ES',
-            'MEXICO' => 'MX',
-            'JAPAN' => 'JP',
-            'NETHERLANDS' => 'NL',
-            'BELGIUM' => 'BE',
-            'IRELAND' => 'IE',
-            'NEW ZEALAND' => 'NZ',
-            'SWEDEN' => 'SE',
-            'NORWAY' => 'NO',
-            'DENMARK' => 'DK',
-            'SWITZERLAND' => 'CH',
-            'AUSTRIA' => 'AT',
-            'POLAND' => 'PL',
-            'PORTUGAL' => 'PT',
-            'BRAZIL' => 'BR',
-            'INDIA' => 'IN',
-            'SINGAPORE' => 'SG',
-            'HONG KONG' => 'HK',
-            'TAIWAN' => 'TW',
+            'CZECH REPUBLIC' => 'CZ',
             'SOUTH KOREA' => 'KR',
             'KOREA, SOUTH' => 'KR',
-            'PHILIPPINES' => 'PH',
-            'THAILAND' => 'TH',
-            'VIETNAM' => 'VN',
             'VIET NAM' => 'VN',
         ];
 
-        if (! isset($map[$upper])) {
+        if (isset($aliases[$upper])) {
+            return $aliases[$upper];
+        }
+
+        $officialNames = array_map(
+            static fn (string $name): string => mb_strtoupper($name, 'UTF-8'),
+            Countries::getNames('en')
+        );
+        $code = array_search($upper, $officialNames, true);
+
+        if ($code === false) {
             throw new RuntimeException("Unsupported Ship To Country: {$trimmed}");
         }
 
-        return $map[$upper];
+        return $code;
     }
 
     private function validateCsvRow(array $row): void
