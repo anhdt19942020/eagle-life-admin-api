@@ -22,10 +22,8 @@ class PrintifyProductController extends Controller
         $shopId = $request->integer('shop_id');
         $user = $request->user();
 
-        if (! $user->hasRole('admin')) {
-            if ($user->printify_shop_id === null || (int) $user->printify_shop_id !== $shopId) {
-                return $this->error('You do not have the required authorization.', 403);
-            }
+        if (! $user->hasRole('admin') && ! $user->printifyShops->contains('id', $shopId)) {
+            return $this->error('You do not have the required authorization.', 403);
         }
 
         $shop = PrintifyShop::with('account')->findOrFail($shopId);

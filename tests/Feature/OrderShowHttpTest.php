@@ -62,7 +62,7 @@ class OrderShowHttpTest extends TestCase
             'printify_shop_id' => 422,
             'title' => 'Alice Alice TT',
         ]);
-        $seller = User::factory()->create(['printify_shop_id' => $shop->id]);
+        $seller = $this->makeSellerForShop($shop);
         $seller->assignRole('seller');
 
         Order::create([
@@ -76,9 +76,8 @@ class OrderShowHttpTest extends TestCase
             ->assertOk()
             ->assertJsonPath('status', 'success')
             ->assertJsonPath('data.data.0.seller.id', $seller->id)
-            ->assertJsonPath('data.data.0.seller.printify_shop_id', $shop->id)
-            ->assertJsonPath('data.data.0.seller.printify_shop.id', $shop->id)
-            ->assertJsonPath('data.data.0.seller.printify_shop.title', 'Alice Alice TT');
+            ->assertJsonPath('data.data.0.seller.printify_shops.0.id', $shop->id)
+            ->assertJsonPath('data.data.0.seller.printify_shops.0.title', 'Alice Alice TT');
     }
 
     public function test_order_index_includes_seller_stats_ignoring_seller_id_filter(): void

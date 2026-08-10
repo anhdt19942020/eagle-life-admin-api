@@ -19,11 +19,26 @@ class PrintifyShopResource extends JsonResource
                 'email' => $this->account->email,
                 'is_active' => $this->account->is_active,
             ]),
-            'assigned_user' => $this->whenLoaded('assignedUser', fn () => $this->assignedUser === null ? null : [
-                'id' => $this->assignedUser->id,
-                'name' => $this->assignedUser->name,
-                'email' => $this->assignedUser->email,
-            ]),
+            'assigned_users' => $this->whenLoaded('assignedUsers', function () use ($request) {
+                $authUser = $request->user();
+                if (! $authUser?->hasRole('admin')) {
+                    return $this->assignedUsers
+                        ->where('id', $authUser?->id)
+                        ->map(fn ($user) => [
+                            'id' => $user->id,
+                            'name' => $user->name,
+                            'email' => $user->email,
+                            'is_default' => (bool) $user->pivot->is_default,
+                        ])->values();
+                }
+
+                return $this->assignedUsers->map(fn ($user) => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'is_default' => (bool) $user->pivot->is_default,
+                ])->values();
+            }),
             'printify_shop_id' => $this->printify_shop_id,
             'title' => $this->title,
             'default_sku' => $this->default_sku,

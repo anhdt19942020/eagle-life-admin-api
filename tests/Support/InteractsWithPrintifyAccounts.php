@@ -4,6 +4,7 @@ namespace Tests\Support;
 
 use App\Models\PrintifyAccount;
 use App\Models\PrintifyShop;
+use App\Models\User;
 use App\Services\Printify\PrintifyClient;
 use App\Services\Printify\PrintifyClientFactory;
 use Illuminate\Http\Client\Factory as HttpFactory;
@@ -28,6 +29,14 @@ trait InteractsWithPrintifyAccounts
             'is_active' => true,
             'is_open' => true,
         ], $attributes));
+    }
+
+    protected function makeSellerForShop(PrintifyShop $shop): User
+    {
+        $user = User::factory()->create();
+        $user->printifyShops()->attach($shop->id, ['is_default' => true]);
+
+        return $user;
     }
 
     protected function configurePrintifyHttpBase(): void

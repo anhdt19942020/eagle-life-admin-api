@@ -91,11 +91,13 @@ class UserRoleGroupValidationTest extends TestCase
             'password' => 'password123',
             'role' => 'seller',
             'sales_group_id' => $group->id,
-            'printify_shop_id' => $shop->id,
+            'printify_shop_ids' => [$shop->id],
+            'default_printify_shop_id' => $shop->id,
         ])->assertCreated()
             ->assertJsonPath('data.sales_group_id', $group->id)
             ->assertJsonPath('data.roles.0.name', 'seller')
-            ->assertJsonPath('data.printify_shop_id', $shop->id);
+            ->assertJsonPath('data.printify_shops.0.id', $shop->id)
+            ->assertJsonPath('data.printify_shops.0.pivot.is_default', true);
     }
 
     public function test_admin_user_clears_sales_group(): void

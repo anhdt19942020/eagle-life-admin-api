@@ -36,7 +36,7 @@ class PrintifyShopDefaultSkuSyncApiTest extends TestCase
 
     private function actingLeaderForShop(PrintifyShop $shop): User
     {
-        $user = User::factory()->create(['printify_shop_id' => $shop->id]);
+        $user = $this->makeSellerForShop($shop);
         Role::findOrCreate('group_leader', 'api');
         $user->assignRole('group_leader');
         Permission::findOrCreate('printify.shop-readiness.confirm', 'api');
@@ -92,7 +92,7 @@ class PrintifyShopDefaultSkuSyncApiTest extends TestCase
     public function test_response_shop_is_complete_enough_to_replace_a_list_row(): void
     {
         $shop = $this->shopNeedingSku();
-        User::factory()->create(['printify_shop_id' => $shop->id]);
+        $this->makeSellerForShop($shop);
 
         $product = PrintifyProduct::create([
             'printify_shop_id' => $shop->id,
@@ -119,7 +119,7 @@ class PrintifyShopDefaultSkuSyncApiTest extends TestCase
         // must carry the relations the list renders and the recomputed blockers.
         $payloadShop = $response->json('data.shop');
         $this->assertArrayHasKey('account', $payloadShop);
-        $this->assertArrayHasKey('assigned_user', $payloadShop);
+        $this->assertArrayHasKey('assigned_users', $payloadShop);
         $this->assertNotContains('missing_default_sku', $payloadShop['readiness_issues']);
         $this->assertTrue($payloadShop['ready_for_creation']);
     }

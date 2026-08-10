@@ -191,7 +191,8 @@ class OrderVisibilityTest extends TestCase
             'manual_approval_confirmed_at' => now(),
         ]);
 
-        $sellerA = User::factory()->create(['printify_shop_id' => $shop->id]);
+        $sellerA = User::factory()->create();
+        $sellerA->printifyShops()->attach($shop->id, ['is_default' => true]);
         $sellerA->assignRole('seller');
         Sanctum::actingAs($sellerA);
 

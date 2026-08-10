@@ -52,7 +52,18 @@ class PrintifyOrderCreateTest extends TestCase
 
     private function actingSellerWithShop(PrintifyShop $shop): User
     {
-        $user = User::factory()->create(['printify_shop_id' => $shop->id]);
+        return $this->actingSellerWithShops([$shop], $shop);
+    }
+
+    /**
+     * @param  list<PrintifyShop>  $shops
+     */
+    private function actingSellerWithShops(array $shops, PrintifyShop $defaultShop): User
+    {
+        $user = User::factory()->create();
+        foreach ($shops as $shop) {
+            $user->printifyShops()->attach($shop->id, ['is_default' => $shop->id === $defaultShop->id]);
+        }
         Role::findOrCreate('seller', 'api');
         Permission::findOrCreate('printify.order.create', 'api');
         $user->assignRole('seller');
@@ -221,7 +232,7 @@ class PrintifyOrderCreateTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_seller_spoofed_shop_id_is_rejected(): void
+    public function test_seller_rejected_for_unassigned_shop(): void
     {
         $assigned = $this->readyShop();
         $otherAccount = $this->makePrintifyAccount('other@example.com', 'other-pat');
@@ -241,9 +252,42 @@ class PrintifyOrderCreateTest extends TestCase
 
         $this->postJson("/api/orders/{$order->id}/printify-create", ['shop_id' => $otherShop->id])
             ->assertStatus(422)
-            ->assertJsonPath('data.code', 'printify_shop_spoof_rejected');
+            ->assertJsonPath('data.code', 'printify_shop_not_assigned');
 
         Http::assertNothingSent();
+    }
+
+    public function test_seller_switches_to_non_default_assigned_shop(): void
+    {
+        $this->configurePrintifyHttp();
+        $defaultShop = $this->readyShop();
+        $otherAccount = $this->makePrintifyAccount('other@example.com', 'other-pat');
+        $otherShop = $this->makePrintifyShop($otherAccount, [
+            'printify_shop_id' => 202,
+            'title' => 'Other',
+            'default_sku' => 'TEST-DEFAULT-SKU',
+            'orders_sync_state' => 'complete',
+            'manual_approval_confirmed_at' => now(),
+        ]);
+        $remoteProductId = $this->seedMappedVariant($otherShop);
+        $order = $this->importOrderWithSku('SKU-M');
+        $seller = $this->actingSellerWithShops([$defaultShop, $otherShop], $defaultShop);
+        $order->forceFill(['seller_id' => $seller->id])->save();
+
+        Http::fake([
+            'printify.test/v1/shops/202/orders.json' => Http::response([
+                'id' => 'pog-other',
+                'status' => 'pending',
+            ], 200),
+        ]);
+
+        $this->postJson("/api/orders/{$order->id}/printify-create", ['shop_id' => $otherShop->id])
+            ->assertOk()
+            ->assertJsonPath('data.created', true)
+            ->assertJsonPath('data.printify_order.printify_order_id', 'pog-other');
+
+        Http::assertSent(fn ($request) => $request->url() === 'https://printify.test/v1/shops/202/orders.json'
+            && ($request['line_items'][0]['product_id'] ?? null) === $remoteProductId);
     }
 
     public function test_seller_uses_assigned_shop_without_shop_id(): void

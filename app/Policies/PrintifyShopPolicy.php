@@ -16,7 +16,6 @@ class PrintifyShopPolicy
             return true;
         }
 
-        return $user->printify_shop_id !== null
-            && (int) $user->printify_shop_id === (int) $shop->id;
+        return $user->printifyShops->contains('id', $shop->id);
     }
 }

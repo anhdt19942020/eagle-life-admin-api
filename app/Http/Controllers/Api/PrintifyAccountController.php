@@ -8,6 +8,8 @@ use App\Jobs\SyncPrintifyShopsJob;
 use App\Models\PrintifyAccount;
 use App\Traits\ApiResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Throwable;
@@ -18,13 +20,14 @@ class PrintifyAccountController extends Controller
 
     public function index(Request $request)
     {
-        $query = PrintifyAccount::query()->withCount(['shops', 'assignedUsers']);
+        $query = PrintifyAccount::query()->withCount('shops');
 
         if ($request->has('is_active')) {
             $query->where('is_active', $request->boolean('is_active'));
         }
 
         $accounts = $query->latest()->paginate($request->integer('per_page', 15));
+        $this->attachAssignedUserCounts(collect($accounts->items()));
 
         return $this->success(PrintifyAccountResource::collection($accounts), 'Lấy danh sách Printify account thành công');
     }
@@ -55,7 +58,8 @@ class PrintifyAccountController extends Controller
 
         SyncPrintifyShopsJob::dispatch($account->id)->afterResponse();
 
-        $account->loadCount(['shops', 'assignedUsers']);
+        $account->loadCount('shops');
+        $this->attachAssignedUserCounts(collect([$account]));
 
         return $this->success(
             new PrintifyAccountResource($account),
@@ -66,7 +70,8 @@ class PrintifyAccountController extends Controller
 
     public function show(PrintifyAccount $account)
     {
-        $account->loadCount(['shops', 'assignedUsers'])->load('shops');
+        $account->loadCount('shops')->load('shops');
+        $this->attachAssignedUserCounts(collect([$account]));
 
         return $this->success(new PrintifyAccountResource($account), 'Lấy chi tiết Printify account thành công');
     }
@@ -101,7 +106,8 @@ class PrintifyAccountController extends Controller
             return $this->error('Không thể cập nhật Printify account. Vui lòng thử lại.', 500);
         }
 
-        $account->loadCount(['shops', 'assignedUsers']);
+        $account->loadCount('shops');
+        $this->attachAssignedUserCounts(collect([$account]));
 
         return $this->success(new PrintifyAccountResource($account), 'Cập nhật Printify account thành công');
     }
@@ -109,7 +115,8 @@ class PrintifyAccountController extends Controller
     public function deactivate(PrintifyAccount $account)
     {
         $account->update(['is_active' => false]);
-        $account->loadCount(['shops', 'assignedUsers']);
+        $account->loadCount('shops');
+        $this->attachAssignedUserCounts(collect([$account]));
 
         return $this->success(new PrintifyAccountResource($account), 'Đã vô hiệu hoá Printify account');
     }
@@ -117,8 +124,34 @@ class PrintifyAccountController extends Controller
     public function activate(PrintifyAccount $account)
     {
         $account->update(['is_active' => true]);
-        $account->loadCount(['shops', 'assignedUsers']);
+        $account->loadCount('shops');
+        $this->attachAssignedUserCounts(collect([$account]));
 
         return $this->success(new PrintifyAccountResource($account), 'Đã kích hoạt Printify account');
+    }
+
+    /**
+     * Distinct-seller count per account, computed via the seller<->shop pivot since a seller
+     * may now be assigned to multiple shops (no longer a plain hasManyThrough). Sets
+     * `assigned_users_count` on each model so PrintifyAccountResource::whenCounted('assignedUsers')
+     * finds it exactly as it would after a native Eloquent withCount().
+     *
+     * @param  Collection<int, PrintifyAccount>  $accounts
+     */
+    private function attachAssignedUserCounts(Collection $accounts): void
+    {
+        $accountIds = $accounts->pluck('id');
+
+        $counts = DB::table('printify_shop_user')
+            ->join('printify_shops', 'printify_shops.id', '=', 'printify_shop_user.printify_shop_id')
+            ->whereIn('printify_shops.printify_account_id', $accountIds)
+            ->selectRaw('printify_shops.printify_account_id as account_id, COUNT(DISTINCT printify_shop_user.user_id) as user_count')
+            ->groupBy('printify_shops.printify_account_id')
+            ->pluck('user_count', 'account_id');
+
+        $accounts->each(fn (PrintifyAccount $account) => $account->setAttribute(
+            'assigned_users_count',
+            (int) ($counts->get($account->id) ?? 0)
+        ));
     }
 }

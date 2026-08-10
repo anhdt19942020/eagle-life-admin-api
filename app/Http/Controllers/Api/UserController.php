@@ -9,6 +9,7 @@ use App\Traits\ApiResponse;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -19,7 +20,7 @@ class UserController extends Controller
 
     public function index(Request $request)
     {
-        $query = User::with(['roles', 'salesGroup', 'printifyShop.account']);
+        $query = User::with(['roles', 'salesGroup', 'printifyShops.account']);
 
         if ($request->has('search')) {
             $search = $request->search;
@@ -50,9 +51,9 @@ class UserController extends Controller
         if ($request->filled('printify_assignment')) {
             $assignment = $request->input('printify_assignment');
             if ($assignment === 'assigned') {
-                $query->whereNotNull('printify_shop_id');
+                $query->has('printifyShops');
             } elseif ($assignment === 'unassigned') {
-                $query->whereNull('printify_shop_id');
+                $query->doesntHave('printifyShops');
             }
         }
 
@@ -77,21 +78,26 @@ class UserController extends Controller
                 'exists:sales_groups,id',
             ],
             'printify_account_id' => ['nullable', 'integer', 'exists:printify_accounts,id'],
-            'printify_shop_id' => $this->printifyShopIdRules(null),
+            'printify_shop_ids' => ['sometimes', 'array'],
+            'printify_shop_ids.*' => ['integer', 'exists:printify_shops,id'],
+            'default_printify_shop_id' => ['sometimes', 'nullable', 'integer'],
         ]);
 
         $validator->validate();
 
         $role = $request->filled('role') ? $request->role : null;
+        $shopIds = $role === 'admin' ? [] : $this->requestedPrintifyShopIds($request);
+        $defaultShopId = $this->requestedDefaultPrintifyShopId($request, $shopIds);
 
-        if ($assignmentError = $this->resolvePrintifyAssignmentError($request, $role, null)) {
+        $printifyAccountId = $request->filled('printify_account_id') ? (int) $request->input('printify_account_id') : null;
+
+        if ($assignmentError = $this->resolvePrintifyAssignmentError($role, $shopIds, $defaultShopId, $printifyAccountId)) {
             [$code, $message] = $assignmentError;
 
             return $this->error($message, 422, ['code' => $code]);
         }
 
         $salesGroupId = $role === 'admin' ? null : $request->input('sales_group_id');
-        $printifyShopId = $role === 'admin' ? null : $request->input('printify_shop_id');
 
         $latestUser = User::orderBy('id', 'desc')->first();
         $nextId = $latestUser ? $latestUser->id + 1 : 1;
@@ -108,9 +114,6 @@ class UserController extends Controller
                 'avatar' => $request->avatar,
                 'status' => $request->status ?? 1,
                 'sales_group_id' => $salesGroupId,
-                'printify_shop_id' => $printifyShopId,
-                'printify_shop_assigned_by' => $printifyShopId ? $request->user()->id : null,
-                'printify_shop_assigned_at' => $printifyShopId ? now() : null,
             ]);
         } catch (UniqueConstraintViolationException) {
             return $this->respondToUniqueViolation($request, null);
@@ -120,12 +123,14 @@ class UserController extends Controller
             $user->assignRole($role);
         }
 
-        return $this->success($user->load(['roles', 'salesGroup', 'printifyShop.account']), 'Tạo người dùng thành công', 201);
+        $this->syncPrintifyShops($user, $shopIds, $defaultShopId, $request->user()->id);
+
+        return $this->success($user->load(['roles', 'salesGroup', 'printifyShops.account']), 'Tạo người dùng thành công', 201);
     }
 
     public function show($id)
     {
-        $user = User::with(['roles', 'salesGroup', 'printifyShop.account'])->findOrFail($id);
+        $user = User::with(['roles', 'salesGroup', 'printifyShops.account'])->findOrFail($id);
 
         return $this->success($user, 'Lấy chi tiết người dùng thành công');
     }
@@ -160,12 +165,19 @@ class UserController extends Controller
                 'exists:sales_groups,id',
             ],
             'printify_account_id' => ['nullable', 'integer', 'exists:printify_accounts,id'],
-            'printify_shop_id' => $this->printifyShopIdRules($user->id),
+            'printify_shop_ids' => ['sometimes', 'array'],
+            'printify_shop_ids.*' => ['integer', 'exists:printify_shops,id'],
+            'default_printify_shop_id' => ['sometimes', 'nullable', 'integer'],
         ]);
 
         $validator->validate();
 
-        if ($assignmentError = $this->resolvePrintifyAssignmentError($request, $effectiveRole, $user)) {
+        $shopIds = $effectiveRole === 'admin' ? [] : $this->requestedPrintifyShopIds($request, $user);
+        $defaultShopId = $this->requestedDefaultPrintifyShopId($request, $shopIds, $user);
+
+        $printifyAccountId = $request->filled('printify_account_id') ? (int) $request->input('printify_account_id') : null;
+
+        if ($assignmentError = $this->resolvePrintifyAssignmentError($effectiveRole, $shopIds, $defaultShopId, $printifyAccountId)) {
             [$code, $message] = $assignmentError;
 
             return $this->error($message, 422, ['code' => $code]);
@@ -185,17 +197,6 @@ class UserController extends Controller
             }
         }
 
-        if ($effectiveRole === 'admin') {
-            $data['printify_shop_id'] = null;
-            $data['printify_shop_assigned_by'] = null;
-            $data['printify_shop_assigned_at'] = null;
-        } elseif ($request->has('printify_shop_id')
-            && (int) $request->input('printify_shop_id') !== (int) $user->printify_shop_id) {
-            $data['printify_shop_id'] = $request->input('printify_shop_id');
-            $data['printify_shop_assigned_by'] = $request->user()->id;
-            $data['printify_shop_assigned_at'] = now();
-        }
-
         try {
             $user->update($data);
         } catch (UniqueConstraintViolationException) {
@@ -209,7 +210,13 @@ class UserController extends Controller
             $user->update(['sales_group_id' => null]);
         }
 
-        return $this->success($user->load(['roles', 'salesGroup', 'printifyShop.account']), 'Cập nhật người dùng thành công');
+        if ($effectiveRole === 'admin') {
+            $user->printifyShops()->detach();
+        } elseif ($request->has('printify_shop_ids') || $request->has('default_printify_shop_id')) {
+            $this->syncPrintifyShops($user, $shopIds, $defaultShopId, $request->user()->id);
+        }
+
+        return $this->success($user->load(['roles', 'salesGroup', 'printifyShops.account']), 'Cập nhật người dùng thành công');
     }
 
     public function updateStatus(Request $request, $id)
@@ -248,63 +255,107 @@ class UserController extends Controller
     }
 
     /**
-     * @return array<int, string|\Illuminate\Contracts\Validation\Rule>
+     * Requested shop ids: explicit array from the request, falling back to the user's
+     * currently-assigned shops when the request does not touch this field (update only).
+     *
+     * @return list<int>
      */
-    private function printifyShopIdRules(?int $ignoreUserId): array
+    private function requestedPrintifyShopIds(Request $request, ?User $user = null): array
     {
-        return [
-            'nullable',
-            'integer',
-            'exists:printify_shops,id',
-            Rule::unique('users', 'printify_shop_id')->ignore($ignoreUserId),
-        ];
+        if ($request->has('printify_shop_ids')) {
+            return array_values(array_unique(array_map('intval', $request->input('printify_shop_ids', []))));
+        }
+
+        return $user?->printifyShops->pluck('id')->map(fn ($id) => (int) $id)->all() ?? [];
+    }
+
+    /**
+     * @param  list<int>  $shopIds
+     */
+    private function requestedDefaultPrintifyShopId(Request $request, array $shopIds, ?User $user = null): ?int
+    {
+        if ($request->has('default_printify_shop_id')) {
+            return $request->filled('default_printify_shop_id') ? (int) $request->input('default_printify_shop_id') : null;
+        }
+
+        $currentDefaultId = $user?->printifyShops->firstWhere('pivot.is_default', true)?->id;
+
+        if ($currentDefaultId !== null && in_array((int) $currentDefaultId, $shopIds, true)) {
+            return (int) $currentDefaultId;
+        }
+
+        return $shopIds[0] ?? null;
     }
 
     /**
      * Business-rule check for the seller/group_leader shop assignment, run after structural
-     * validation (required/exists/unique) has already passed. Returns [stable_code, vi_message]
-     * for the three conditions the frontend order UI branches on, or null when the assignment
+     * validation (required/exists rules) has already passed. Returns [stable_code, vi_message]
+     * for the conditions the frontend order UI branches on, or null when the assignment
      * is valid or the role does not require one (including admin, which never needs a shop).
      *
+     * @param  list<int>  $shopIds
      * @return array{0: string, 1: string}|null
      */
-    private function resolvePrintifyAssignmentError(Request $request, ?string $effectiveRole, ?User $user): ?array
+    private function resolvePrintifyAssignmentError(?string $effectiveRole, array $shopIds, ?int $defaultShopId, ?int $printifyAccountId = null): ?array
     {
         if (! in_array($effectiveRole, User::GROUP_REQUIRED_ROLES, true)) {
             return null;
         }
 
-        $shopId = $request->has('printify_shop_id')
-            ? ($request->filled('printify_shop_id') ? (int) $request->input('printify_shop_id') : null)
-            : $user?->printify_shop_id;
+        if (empty($shopIds)) {
+            return ['printify_shop_assignment_required', 'Vui lòng gán ít nhất một shop Printify cho người dùng này.'];
+        }
 
-        if ($shopId === null) {
-            return ['printify_shop_assignment_required', 'Vui lòng gán một shop Printify cho người dùng này.'];
+        if ($defaultShopId === null || ! in_array($defaultShopId, $shopIds, true)) {
+            return ['printify_default_shop_invalid', 'Shop mặc định phải nằm trong danh sách shop đã gán.'];
         }
 
         // Existence is already guaranteed by the exists:printify_shops,id rule at this point.
-        $shop = PrintifyShop::with('account')->find($shopId);
+        $shops = PrintifyShop::with('account')->whereIn('id', $shopIds)->get();
 
-        if (! $shop->is_active) {
-            return ['printify_shop_not_ready', 'Shop Printify đã chọn hiện không sẵn sàng.'];
-        }
+        foreach ($shops as $shop) {
+            if (! $shop->is_active) {
+                return ['printify_shop_not_ready', "Shop Printify \"{$shop->title}\" hiện không sẵn sàng."];
+            }
 
-        if ($shop->account === null || ! $shop->account->is_active) {
-            return ['printify_account_inactive', 'Printify account của shop này hiện không hoạt động.'];
-        }
+            if ($shop->account === null || ! $shop->account->is_active) {
+                return ['printify_account_inactive', "Printify account của shop \"{$shop->title}\" hiện không hoạt động."];
+            }
 
-        if ($request->filled('printify_account_id')
-            && (int) $request->input('printify_account_id') !== (int) $shop->printify_account_id) {
-            return ['printify_shop_not_ready', 'Shop không thuộc Printify account đã chọn.'];
+            if ($printifyAccountId !== null && $shop->printify_account_id !== $printifyAccountId) {
+                return ['printify_shop_account_mismatch', "Shop \"{$shop->title}\" không thuộc Printify account đã chọn."];
+            }
         }
 
         return null;
     }
 
     /**
+     * @param  list<int>  $shopIds
+     */
+    private function syncPrintifyShops(User $user, array $shopIds, ?int $defaultShopId, int $assignedBy): void
+    {
+        DB::transaction(function () use ($user, $shopIds, $defaultShopId, $assignedBy) {
+            $existingPivots = $user->printifyShops->keyBy('id');
+
+            $pivotData = collect($shopIds)->mapWithKeys(function (int $shopId) use ($defaultShopId, $assignedBy, $existingPivots) {
+                $existing = $existingPivots->get($shopId);
+
+                return [$shopId => [
+                    'is_default' => $shopId === $defaultShopId,
+                    'assigned_by' => $existing ? $existing->pivot->assigned_by : $assignedBy,
+                    'assigned_at' => $existing ? $existing->pivot->assigned_at : now(),
+                ]];
+            })->all();
+
+            $user->printifyShops()->sync($pivotData);
+        });
+    }
+
+    /**
      * Disambiguates a UniqueConstraintViolationException raised by create()/update() by
-     * re-checking each unique-constrained column, since email/username/phone and
-     * printify_shop_id can all race the same validate-then-write window.
+     * re-checking each unique-constrained column, since email/username/phone can all race
+     * the same validate-then-write window.
      */
     private function respondToUniqueViolation(Request $request, ?int $ignoreUserId): JsonResponse
     {
@@ -322,12 +373,6 @@ class UserController extends Controller
 
         if ($request->filled('phone') && $collides('phone', $request->input('phone'))) {
             return $this->error('Số điện thoại đã được sử dụng.', 422, ['phone' => ['Số điện thoại đã được sử dụng.']]);
-        }
-
-        if ($request->filled('printify_shop_id') && $collides('printify_shop_id', $request->input('printify_shop_id'))) {
-            return $this->error('Shop này vừa được gán cho người dùng khác.', 422, [
-                'printify_shop_id' => ['Shop này đã được gán cho người dùng khác.'],
-            ]);
         }
 
         return $this->error('Không thể lưu người dùng do xung đột dữ liệu. Vui lòng thử lại.', 422);

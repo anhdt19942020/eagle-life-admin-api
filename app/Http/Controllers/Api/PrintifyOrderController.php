@@ -90,10 +90,10 @@ class PrintifyOrderController extends Controller
         if ($isAdmin) {
             $shop = PrintifyShop::with('account')->findOrFail($validated['shop_id']);
         } else {
-            $user->loadMissing('printifyShop.account');
-            $shop = $user->printifyShop;
+            $user->loadMissing('printifyShops.account');
+            $assignedShops = $user->printifyShops;
 
-            if ($shop === null) {
+            if ($assignedShops->isEmpty()) {
                 return $this->error(
                     'Vui lòng gán một shop Printify cho người dùng này.',
                     422,
@@ -101,14 +101,20 @@ class PrintifyOrderController extends Controller
                 );
             }
 
-            if (array_key_exists('shop_id', $validated)
-                && $validated['shop_id'] !== null
-                && (int) $validated['shop_id'] !== (int) $shop->id) {
-                return $this->error(
-                    'Không được chọn shop Printify khác với shop đã gán.',
-                    422,
-                    ['code' => 'printify_shop_spoof_rejected']
-                );
+            $requestedShopId = $validated['shop_id'] ?? null;
+
+            if ($requestedShopId !== null) {
+                $shop = $assignedShops->firstWhere('id', (int) $requestedShopId);
+
+                if ($shop === null) {
+                    return $this->error(
+                        'Shop Printify đã chọn chưa được gán cho bạn.',
+                        422,
+                        ['code' => 'printify_shop_not_assigned']
+                    );
+                }
+            } else {
+                $shop = $assignedShops->firstWhere('pivot.is_default', true) ?? $assignedShops->first();
             }
         }
 

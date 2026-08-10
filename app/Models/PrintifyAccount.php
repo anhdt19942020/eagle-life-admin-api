@@ -5,7 +5,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 
 class PrintifyAccount extends Model
 {
@@ -35,17 +34,8 @@ class PrintifyAccount extends Model
         return $this->hasMany(PrintifyShop::class, 'printify_account_id');
     }
 
-    public function assignedUsers(): HasManyThrough
-    {
-        return $this->hasManyThrough(
-            User::class,
-            PrintifyShop::class,
-            'printify_account_id',
-            'printify_shop_id',
-            'id',
-            'id',
-        );
-    }
+    // Distinct-seller count across this account's shops is no longer a simple hasManyThrough
+    // (seller<->shop is many-to-many now) — see PrintifyAccountController::attachAssignedUserCounts().
 
     public function keyRotatedBy(): BelongsTo
     {

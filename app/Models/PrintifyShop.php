@@ -4,8 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class PrintifyShop extends Model
 {
@@ -40,9 +40,12 @@ class PrintifyShop extends Model
         return $this->belongsTo(PrintifyAccount::class, 'printify_account_id');
     }
 
-    public function assignedUser(): HasOne
+    public function assignedUsers(): BelongsToMany
     {
-        return $this->hasOne(User::class, 'printify_shop_id');
+        return $this->belongsToMany(User::class)
+            ->using(PrintifyShopUser::class)
+            ->withPivot('is_default', 'assigned_by', 'assigned_at')
+            ->withTimestamps();
     }
 
     public function products(): HasMany

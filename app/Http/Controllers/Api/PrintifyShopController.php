@@ -25,10 +25,10 @@ class PrintifyShopController extends Controller
         ]);
 
         $query = PrintifyShop::query()
-            ->with(['account', 'assignedUser'])
+            ->with(['account', 'assignedUsers'])
             ->withExists([
                 'orders as has_order_conflicts' => fn ($query) => $query->where('has_conflict', true),
-                'assignedUser as has_assigned_user',
+                'assignedUsers as has_assigned_user',
             ])
             // Assigned holders first so ops can find reserved shops quickly; title within each group.
             ->orderByDesc('has_assigned_user')
@@ -53,11 +53,7 @@ class PrintifyShopController extends Controller
 
         $user = $request->user();
         if (! $user->hasRole('admin')) {
-            if ($user->printify_shop_id === null) {
-                $query->whereRaw('0 = 1');
-            } else {
-                $query->where('id', $user->printify_shop_id);
-            }
+            $query->whereHas('assignedUsers', fn ($q) => $q->whereKey($user->id));
         }
 
         $perPage = min(max($request->integer('per_page', 15), 1), 1000);
@@ -185,7 +181,7 @@ class PrintifyShopController extends Controller
         };
 
         $freshShop = PrintifyShop::query()
-            ->with(['account', 'assignedUser'])
+            ->with(['account', 'assignedUsers'])
             ->withExists([
                 'orders as has_order_conflicts' => fn ($query) => $query->where('has_conflict', true),
             ])

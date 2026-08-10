@@ -5,14 +5,15 @@ namespace App\Models;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Spatie\Permission\Traits\HasRoles;
 use Laravel\Sanctum\HasApiTokens;
+use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable, HasRoles;
+    use HasApiTokens, HasFactory, HasRoles, Notifiable;
 
     protected $guard_name = 'api';
 
@@ -36,9 +37,6 @@ class User extends Authenticatable
         'avatar',
         'status',
         'sales_group_id',
-        'printify_shop_id',
-        'printify_shop_assigned_by',
-        'printify_shop_assigned_at',
     ];
 
     /**
@@ -61,7 +59,6 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
-            'printify_shop_assigned_at' => 'datetime',
         ];
     }
 
@@ -70,13 +67,16 @@ class User extends Authenticatable
         return $this->belongsTo(SalesGroup::class);
     }
 
-    public function printifyShop(): BelongsTo
+    public function printifyShops(): BelongsToMany
     {
-        return $this->belongsTo(PrintifyShop::class, 'printify_shop_id');
+        return $this->belongsToMany(PrintifyShop::class)
+            ->using(PrintifyShopUser::class)
+            ->withPivot('is_default', 'assigned_by', 'assigned_at')
+            ->withTimestamps();
     }
 
-    public function printifyShopAssignedBy(): BelongsTo
+    public function defaultPrintifyShop(): BelongsToMany
     {
-        return $this->belongsTo(self::class, 'printify_shop_assigned_by');
+        return $this->printifyShops()->wherePivot('is_default', true);
     }
 }
