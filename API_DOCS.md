@@ -330,6 +330,8 @@ Residual: import vẫn có thể ghi `seller_code` cross-group (chưa siết tro
 
 ### 4.1. Danh sách Đơn hàng
 
+Mỗi item của danh sách có thêm `printify_order` (hoặc `null`) gồm `id`, `status`, `intent_state`, `has_conflict`, `synced_at`. Frontend dùng `status` để hiển thị trạng thái in; giá trị có thể `null` trong lúc chờ lượt đồng bộ Printify kế tiếp.
+
 - **Đường dẫn**: `GET /orders`
 - **Query Params (tùy chọn)**:
 

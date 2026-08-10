@@ -23,6 +23,7 @@ class OrderController extends Controller
             'seller:id,name,employee_code',
             'seller.printifyShops:id,title,printify_shop_id,is_open',
             'lineItems:id,order_id,title',
+            'printifyOrder:id,order_id,status,intent_state,has_conflict,synced_at',
         ];
 
         if ($request->query('trashed') === 'only') {
@@ -59,6 +60,7 @@ class OrderController extends Controller
                 'buyer:id,name,employee_code',
                 'seller:id,name,employee_code',
                 'seller.printifyShops:id,title,printify_shop_id,is_open',
+                'printifyOrder:id,order_id,status,intent_state,has_conflict,synced_at',
                 'fulfillmentAddress',
                 'lineItems',
             ])

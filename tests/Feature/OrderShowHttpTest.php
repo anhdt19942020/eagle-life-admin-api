@@ -7,6 +7,7 @@ namespace Tests\Feature;
 use App\Models\User;
 use App\Models\Order;
 use App\Models\OrderLineItem;
+use App\Models\PrintifyOrder;
 use App\Services\OrderImportService;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
@@ -49,6 +50,35 @@ class OrderShowHttpTest extends TestCase
             ->assertOk()
             ->assertJsonPath('status', 'success')
             ->assertJsonPath('data.data.0.line_items.0.title', 'Long product title for the orders list');
+    }
+
+    public function test_order_index_includes_printify_order_status_for_the_orders_table(): void
+    {
+        $user = User::factory()->create();
+        $user->assignRole('admin');
+        Sanctum::actingAs($user);
+
+        $account = $this->makePrintifyAccount();
+        $shop = $this->makePrintifyShop($account);
+        $order = Order::create([
+            'ebay_order_id' => '13-14975-00012',
+            'ebay_order_number' => '13-14975-00012',
+            'ebay_created_at' => '2026-08-02 12:00:00',
+            'printify_order_id' => 'printify-123',
+        ]);
+        PrintifyOrder::create([
+            'order_id' => $order->id,
+            'printify_shop_id' => $shop->id,
+            'printify_order_id' => 'printify-123',
+            'status' => 'in-production',
+            'intent_state' => 'synced',
+            'synced_at' => '2026-08-02 12:05:00',
+        ]);
+
+        $this->getJson('/api/orders')
+            ->assertOk()
+            ->assertJsonPath('data.data.0.printify_order.status', 'in-production')
+            ->assertJsonPath('data.data.0.printify_order.intent_state', 'synced');
     }
 
     public function test_order_index_includes_seller_printify_shop_for_admin_bulk_draft_ui(): void
