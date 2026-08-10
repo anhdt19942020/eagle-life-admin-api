@@ -9,7 +9,7 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote')->hourly();
 
 Schedule::command('printify:sync-shops')->hourly()->withoutOverlapping();
-Schedule::command('printify:sync-orders')->hourly()->withoutOverlapping();
+Schedule::command('printify:sync-orders')->everyFifteenMinutes()->withoutOverlapping();
 // Full product catalog sync disabled: large shops timeout / bloat DB.
 // Seed placeholders with: php artisan printify:sync-products --shop-id=… --product-id=…| --max-products=1
 // Then set default_sku (UI or printify:ensure-default-sku).

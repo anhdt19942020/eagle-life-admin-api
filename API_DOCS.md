@@ -756,4 +756,6 @@ Luồng (as implemented):
 | `php artisan printify:sync-orders {--shop-id=} {--limit-pages=}` | Sync orders inbound |
 | `php artisan printify:sync-uploads {--limit-pages=}` | Sync uploads |
 
+Scheduler chạy `printify:sync-orders` mỗi 15 phút và không chạy chồng các lượt sync.
+
 `--shop-id` ở command = **remote** `printify_shop_id`.
