@@ -95,6 +95,30 @@ class PrintifySyncTest extends TestCase
         $this->assertSame('conflict', PrintifyShop::where('printify_shop_id', 102)->value('orders_sync_state'));
     }
 
+    public function test_scheduled_order_sync_uses_each_shop_account_token(): void
+    {
+        $accountA = $this->makePrintifyAccount('a@example.com', 'token-a');
+        $accountB = $this->makePrintifyAccount('b@example.com', 'token-b');
+        $this->makePrintifyShop($accountA, ['printify_shop_id' => 101, 'title' => 'Shop A']);
+        $this->makePrintifyShop($accountB, ['printify_shop_id' => 202, 'title' => 'Shop B']);
+        $this->configurePrintifyHttpBase();
+        Http::fake([
+            'printify.test/v1/shops/101/orders.json*' => Http::response(['data' => [], 'last_page' => 1]),
+            'printify.test/v1/shops/202/orders.json*' => Http::response(['data' => [], 'last_page' => 1]),
+        ]);
+
+        $this->artisan('printify:sync-orders')
+            ->expectsOutput('Shop 101: synced 0 order(s).')
+            ->expectsOutput('Shop 202: synced 0 order(s).')
+            ->assertSuccessful();
+
+        Http::assertSent(fn ($request) => $request->url() === 'https://printify.test/v1/shops/101/orders.json?page=1&limit=50'
+            && $request->hasHeader('Authorization', 'Bearer token-a'));
+        Http::assertSent(fn ($request) => $request->url() === 'https://printify.test/v1/shops/202/orders.json?page=1&limit=50'
+            && $request->hasHeader('Authorization', 'Bearer token-b'));
+        Http::assertSentCount(2);
+    }
+
     public function test_account_lock_prevents_overlapping_order_syncs(): void
     {
         $account = $this->makePrintifyAccount();
