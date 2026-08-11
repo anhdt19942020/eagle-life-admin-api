@@ -232,13 +232,13 @@ class OrderController extends Controller
             )
             ->first();
 
-        $ordersToday = (clone $query)->whereDate('orders.ebay_created_at', today())->count();
+        $ordersToday = (clone $query)->reorder()->whereDate('orders.ebay_created_at', today())->count();
 
         $printifyStatusCounts = (clone $query)
             ->reorder()
             ->join('printify_orders', 'printify_orders.order_id', '=', 'orders.id')
             ->whereNotNull('printify_orders.status')
-            ->selectRaw('printify_orders.status, COUNT(*) as count')
+            ->selectRaw('printify_orders.status, COUNT(DISTINCT orders.id) as count')
             ->groupBy('printify_orders.status')
             ->pluck('count', 'status')
             ->toArray();
