@@ -2,6 +2,7 @@
 
 namespace App\Services\Printify;
 
+use App\Models\Order;
 use App\Models\PrintifyAccount;
 use App\Models\PrintifyOrder;
 use App\Models\PrintifyProduct;
@@ -150,6 +151,8 @@ class PrintifySyncService
                     );
                 }
 
+                $this->linkOrderIds($shop);
+
                 if (! $pages['exhaustive'] || $conflictedExternalIds !== []) {
                     $shop->update(['orders_sync_state' => $conflictedExternalIds === [] ? 'incomplete' : 'conflict']);
 
@@ -164,6 +167,29 @@ class PrintifySyncService
                 throw $exception;
             }
         }));
+    }
+
+    private function linkOrderIds(PrintifyShop $shop): void
+    {
+        $unlinked = PrintifyOrder::where('printify_shop_id', $shop->id)
+            ->whereNull('order_id')
+            ->whereNotNull('ebay_order_number')
+            ->pluck('ebay_order_number', 'id');
+
+        if ($unlinked->isEmpty()) {
+            return;
+        }
+
+        $orderMap = Order::whereIn('ebay_order_id', $unlinked->values())
+            ->pluck('id', 'ebay_order_id');
+
+        foreach ($unlinked as $printifyOrderId => $ebayOrderNumber) {
+            $orderId = $orderMap[$ebayOrderNumber] ?? null;
+            if ($orderId === null) {
+                continue;
+            }
+            PrintifyOrder::where('id', $printifyOrderId)->update(['order_id' => $orderId]);
+        }
     }
 
     public function syncUploads(PrintifyAccount $account, ?int $limitPages = null): int
