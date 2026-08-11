@@ -217,7 +217,6 @@ class OrderController extends Controller
      * visibility + filters, including seller_id.
      *
      * @param  Builder<Order>  $query
-     * @return array{total_orders: int, total_line_items: int, total_quantity: int, total_ebay_amount: string, total_shipping_amount: string}
      */
     private function summaryStatsFor(Builder $query): array
     {
@@ -233,12 +232,25 @@ class OrderController extends Controller
             )
             ->first();
 
+        $ordersToday = (clone $query)->whereDate('orders.ebay_created_at', today())->count();
+
+        $printifyStatusCounts = (clone $query)
+            ->reorder()
+            ->join('printify_orders', 'printify_orders.order_id', '=', 'orders.id')
+            ->whereNotNull('printify_orders.status')
+            ->selectRaw('printify_orders.status, COUNT(*) as count')
+            ->groupBy('printify_orders.status')
+            ->pluck('count', 'status')
+            ->toArray();
+
         return [
             'total_orders' => (int) $totals->total_orders,
             'total_line_items' => (int) $totals->total_line_items,
             'total_quantity' => (int) $totals->total_quantity,
             'total_ebay_amount' => number_format((float) $totals->total_ebay_amount, 2, '.', ''),
             'total_shipping_amount' => number_format((float) $totals->total_shipping_amount, 2, '.', ''),
+            'orders_today' => $ordersToday,
+            'printify_status_counts' => (object) $printifyStatusCounts,
         ];
     }
 }
