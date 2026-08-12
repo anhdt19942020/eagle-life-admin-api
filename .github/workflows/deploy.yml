@@ -46,10 +46,9 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
-            # --- PHP + JS dependencies, then build frontend assets ---
+            # --- PHP dependencies (this is a JSON API; the SPA lives in a separate repo,
+            #     no @vite views here, so there are no frontend assets to build) ---
             composer install --no-dev --optimize-autoloader --no-interaction
-            npm ci
-            npm run build
 
             # --- Apply migrations (backup above guards against a bad one) ---
             php artisan migrate --force
