@@ -25,13 +25,17 @@ jobs:
             cd /var/www/eagle-life-admin-api
 
             # --- Back up the DB before any schema change; keep the 5 most recent dumps ---
-            # Credentials are read from Laravel's .env and never printed.
+            # Credentials come from Laravel's own config (handles quoting/escaping in .env),
+            # printed as tab-separated values and never echoed to the log.
             BACKUP_DIR=/root/eagle-api-db-backups
             mkdir -p "$BACKUP_DIR"
-            DB_DATABASE=$(grep -E '^DB_DATABASE=' .env | cut -d= -f2- | tr -d '"'"'"'"'"'"')
-            DB_USERNAME=$(grep -E '^DB_USERNAME=' .env | cut -d= -f2- | tr -d '"'"'"'"'"'"')
-            DB_PASSWORD=$(grep -E '^DB_PASSWORD=' .env | cut -d= -f2- | tr -d '"'"'"'"'"'"')
-            DB_HOST=$(grep -E '^DB_HOST=' .env | cut -d= -f2- | tr -d '"'"'"'"'"'"')
+            read -r DB_HOST DB_DATABASE DB_USERNAME DB_PASSWORD < <(
+              php -r 'require "vendor/autoload.php";
+                $app = require "bootstrap/app.php";
+                $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+                $c = config("database.connections.".config("database.default"));
+                echo $c["host"]."\t".$c["database"]."\t".$c["username"]."\t".$c["password"]."\n";'
+            )
             # gzip keeps each dump ~10x smaller (disk is tight on this box).
             MYSQL_PWD="$DB_PASSWORD" mysqldump --single-transaction --quick \
               -h "${DB_HOST:-127.0.0.1}" -u "$DB_USERNAME" "$DB_DATABASE" \
