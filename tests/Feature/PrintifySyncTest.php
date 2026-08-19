@@ -6,11 +6,13 @@ namespace Tests\Feature;
 
 use App\Models\PrintifyOrder;
 use App\Models\PrintifyProduct;
+use App\Models\PrintifyProductVariant;
 use App\Models\PrintifyShop;
 use App\Services\Printify\PrintifySyncService;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Tests\Support\InteractsWithPrintifyAccounts;
 use Tests\TestCase;
@@ -344,5 +346,69 @@ class PrintifySyncTest extends TestCase
             'printify_account_id' => $accountB->id,
             'title' => 'Owned by B',
         ]);
+    }
+
+    public function test_full_sync_disables_variants_of_products_deleted_on_printify(): void
+    {
+        $account = $this->makePrintifyAccount();
+        $shop = $this->makePrintifyShop($account);
+        $gone = PrintifyProduct::create(['printify_shop_id' => $shop->id, 'printify_product_id' => 'dead-1', 'title' => 'Dead']);
+        $gone->variants()->create(['printify_variant_id' => '9001', 'sku' => 'GONE-SKU', 'is_enabled' => true]);
+        $this->configurePrintifyHttpBase();
+        Http::fake([
+            'printify.test/v1/shops/101/products.json*' => Http::response([
+                'data' => [
+                    ['id' => 'alive-1', 'title' => 'Alive', 'variants' => [['id' => 1, 'sku' => 'LIVE', 'is_enabled' => true]]],
+                ],
+                'last_page' => 1,
+            ]),
+        ]);
+
+        app(PrintifySyncService::class)->syncProducts($account, 101);
+
+        $this->assertFalse((bool) PrintifyProductVariant::where('printify_variant_id', '9001')->value('is_enabled'));
+        $this->assertTrue((bool) PrintifyProductVariant::where('sku', 'LIVE')->value('is_enabled'));
+    }
+
+    public function test_capped_sync_does_not_disable_products_it_never_fetched(): void
+    {
+        $account = $this->makePrintifyAccount();
+        $shop = $this->makePrintifyShop($account);
+        $existing = PrintifyProduct::create(['printify_shop_id' => $shop->id, 'printify_product_id' => 'p2', 'title' => 'Two']);
+        $existing->variants()->create(['printify_variant_id' => '2', 'sku' => 'B', 'is_enabled' => true]);
+        $this->configurePrintifyHttpBase();
+        Http::fake([
+            'printify.test/v1/shops/101/products.json*' => Http::response([
+                'data' => [
+                    ['id' => 'p1', 'title' => 'One', 'variants' => [['id' => 1, 'sku' => 'A', 'is_enabled' => true]]],
+                    ['id' => 'p2', 'title' => 'Two', 'variants' => [['id' => 2, 'sku' => 'B', 'is_enabled' => true]]],
+                ],
+                'last_page' => 1,
+            ]),
+        ]);
+
+        // maxProducts=1 stops after p1, so p2 is unseen — it must NOT be disabled.
+        app(PrintifySyncService::class)->syncProducts($account, 101, 1, 1);
+
+        $this->assertTrue((bool) PrintifyProductVariant::where('sku', 'B')->value('is_enabled'));
+    }
+
+    public function test_full_sync_warns_when_default_sku_points_at_a_deleted_product(): void
+    {
+        $account = $this->makePrintifyAccount();
+        $shop = $this->makePrintifyShop($account, ['default_sku' => 'GONE-SKU']);
+        $gone = PrintifyProduct::create(['printify_shop_id' => $shop->id, 'printify_product_id' => 'dead-1', 'title' => 'Dead']);
+        $gone->variants()->create(['printify_variant_id' => '9001', 'sku' => 'GONE-SKU', 'is_enabled' => true]);
+        $this->configurePrintifyHttpBase();
+        Http::fake([
+            'printify.test/v1/shops/101/products.json*' => Http::response(['data' => [], 'last_page' => 1]),
+        ]);
+        Log::spy();
+
+        app(PrintifySyncService::class)->syncProducts($account, 101);
+
+        Log::shouldHaveReceived('warning')->withArgs(
+            fn ($event, $context) => $event === 'printify.default_sku_gone' && $context['default_sku'] === 'GONE-SKU'
+        )->once();
     }
 }

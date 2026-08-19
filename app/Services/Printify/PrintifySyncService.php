@@ -6,10 +6,12 @@ use App\Models\Order;
 use App\Models\PrintifyAccount;
 use App\Models\PrintifyOrder;
 use App\Models\PrintifyProduct;
+use App\Models\PrintifyProductVariant;
 use App\Models\PrintifyShop;
 use App\Models\PrintifyUpload;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Throwable;
 
@@ -72,16 +74,62 @@ class PrintifySyncService
             $client = $this->factory->for($account);
             $pages = $this->pages($client, "/shops/{$remoteShopId}/products.json", $limitPages);
             $synced = 0;
+            $seenProductIds = [];
             foreach ($pages['items'] as $product) {
                 $this->upsertProduct($shop, $product);
+                $seenProductIds[] = (string) $product['id'];
                 $synced++;
                 if ($maxProducts !== null && $synced >= $maxProducts) {
                     break;
                 }
             }
 
+            // Only a full-catalog pass sees every remote product, so only then can
+            // a local product's absence prove it was deleted on Printify. A capped
+            // pass would wrongly disable products it simply never fetched.
+            if ($limitPages === null && $maxProducts === null) {
+                $this->reconcileDeletedProducts($shop, $seenProductIds);
+            }
+
             return $synced;
         }));
+    }
+
+    /**
+     * Disable variants of local products no longer present on Printify, so the
+     * order preview stops mapping to a deleted product (which Printify 404s on).
+     * Soft only — the product row and its order history stay intact. Warns when
+     * the shop's default_sku pointed at a now-disabled variant, but never edits
+     * default_sku itself (picking a replacement is the admin's decision).
+     */
+    private function reconcileDeletedProducts(PrintifyShop $shop, array $seenProductIds): void
+    {
+        $gone = PrintifyProduct::query()
+            ->where('printify_shop_id', $shop->id)
+            ->whereNotIn('printify_product_id', $seenProductIds)
+            ->get();
+
+        foreach ($gone as $product) {
+            $product->variants()->update(['is_enabled' => false]);
+        }
+
+        $defaultSku = trim((string) $shop->default_sku);
+        if ($defaultSku === '') {
+            return;
+        }
+
+        $stillLive = PrintifyProductVariant::query()
+            ->where('sku', $defaultSku)
+            ->where('is_enabled', true)
+            ->whereHas('product', fn ($query) => $query->where('printify_shop_id', $shop->id))
+            ->exists();
+
+        if (! $stillLive) {
+            Log::warning('printify.default_sku_gone', [
+                'printify_shop_id' => $shop->printify_shop_id,
+                'default_sku' => $defaultSku,
+            ]);
+        }
     }
 
     /**
