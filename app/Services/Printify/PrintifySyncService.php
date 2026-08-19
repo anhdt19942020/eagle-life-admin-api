@@ -84,10 +84,12 @@ class PrintifySyncService
                 }
             }
 
-            // Only a full-catalog pass sees every remote product, so only then can
-            // a local product's absence prove it was deleted on Printify. A capped
-            // pass would wrongly disable products it simply never fetched.
-            if ($limitPages === null && $maxProducts === null) {
+            // Reconcile deletions only when we actually walked the whole remote
+            // catalog: pages() reports exhaustive, and maxProducts didn't stop us
+            // mid-list. Otherwise seenProductIds is partial and would wrongly
+            // disable live products we simply never fetched. (A fetch that fails
+            // mid-pagination throws before reaching here, so it can't reconcile.)
+            if ($pages['exhaustive'] && $maxProducts === null) {
                 $this->reconcileDeletedProducts($shop, $seenProductIds);
             }
 

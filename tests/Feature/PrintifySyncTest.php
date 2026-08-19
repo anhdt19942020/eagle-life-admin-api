@@ -393,6 +393,28 @@ class PrintifySyncTest extends TestCase
         $this->assertTrue((bool) PrintifyProductVariant::where('sku', 'B')->value('is_enabled'));
     }
 
+    public function test_page_limited_sync_does_not_reconcile_on_incomplete_catalog(): void
+    {
+        $account = $this->makePrintifyAccount();
+        $shop = $this->makePrintifyShop($account);
+        $existing = PrintifyProduct::create(['printify_shop_id' => $shop->id, 'printify_product_id' => 'p-unseen', 'title' => 'Unseen']);
+        $existing->variants()->create(['printify_variant_id' => '5', 'sku' => 'UNSEEN', 'is_enabled' => true]);
+        $this->configurePrintifyHttpBase();
+        // A full page (50 items) forces pages() to want a second page; limitPages=1
+        // caps it, so the walk is non-exhaustive and reconcile must not run.
+        $fullPage = array_map(
+            fn ($i) => ['id' => "remote-$i", 'title' => "P$i", 'variants' => [['id' => $i, 'sku' => "S$i", 'is_enabled' => true]]],
+            range(1, 50),
+        );
+        Http::fake([
+            'printify.test/v1/shops/101/products.json*' => Http::response(['data' => $fullPage, 'last_page' => 5]),
+        ]);
+
+        app(PrintifySyncService::class)->syncProducts($account, 101, 1);
+
+        $this->assertTrue((bool) PrintifyProductVariant::where('sku', 'UNSEEN')->value('is_enabled'));
+    }
+
     public function test_full_sync_warns_when_default_sku_points_at_a_deleted_product(): void
     {
         $account = $this->makePrintifyAccount();
