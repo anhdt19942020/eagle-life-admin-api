@@ -15,9 +15,14 @@ class SyncPrintifyOrders extends Command
 
     public function handle(PrintifySyncService $sync): int
     {
+        // A full account can hold hundreds of shops, but only those assigned to a
+        // seller produce orders this system acts on. Syncing every active shop made
+        // one no-arg sweep take ~26h (measured: 643 shops), starving other syncs
+        // behind the account rate-limit lock. Restrict the scheduled run to
+        // seller-assigned shops; an explicit --shop-id still syncs any single shop.
         $shops = $this->option('shop-id')
             ? PrintifyShop::with('account')->where('printify_shop_id', $this->option('shop-id'))->get()
-            : PrintifyShop::with('account')->where('is_active', true)->orderBy('id')->get();
+            : PrintifyShop::with('account')->where('is_active', true)->whereHas('assignedUsers')->orderBy('id')->get();
 
         $limitPages = $this->option('limit-pages') !== null && $this->option('limit-pages') !== ''
             ? (int) $this->option('limit-pages')

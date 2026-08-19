@@ -101,8 +101,8 @@ class PrintifySyncTest extends TestCase
     {
         $accountA = $this->makePrintifyAccount('a@example.com', 'token-a');
         $accountB = $this->makePrintifyAccount('b@example.com', 'token-b');
-        $this->makePrintifyShop($accountA, ['printify_shop_id' => 101, 'title' => 'Shop A']);
-        $this->makePrintifyShop($accountB, ['printify_shop_id' => 202, 'title' => 'Shop B']);
+        $this->makeSellerForShop($this->makePrintifyShop($accountA, ['printify_shop_id' => 101, 'title' => 'Shop A']));
+        $this->makeSellerForShop($this->makePrintifyShop($accountB, ['printify_shop_id' => 202, 'title' => 'Shop B']));
         $this->configurePrintifyHttpBase();
         Http::fake([
             'printify.test/v1/shops/101/orders.json*' => Http::response(['data' => [], 'last_page' => 1]),
@@ -119,6 +119,23 @@ class PrintifySyncTest extends TestCase
         Http::assertSent(fn ($request) => $request->url() === 'https://printify.test/v1/shops/202/orders.json?page=1&limit=50'
             && $request->hasHeader('Authorization', 'Bearer token-b'));
         Http::assertSentCount(2);
+    }
+
+    public function test_scheduled_order_sync_skips_shops_with_no_assigned_seller(): void
+    {
+        $account = $this->makePrintifyAccount();
+        // assigned → synced; unassigned → skipped (avoids the 643-shop, ~26h sweep).
+        $this->makeSellerForShop($this->makePrintifyShop($account, ['printify_shop_id' => 101, 'title' => 'Assigned']));
+        $this->makePrintifyShop($account, ['printify_shop_id' => 999, 'title' => 'Unassigned']);
+        $this->configurePrintifyHttpBase();
+        Http::fake(['printify.test/*' => Http::response(['data' => [], 'last_page' => 1])]);
+
+        $this->artisan('printify:sync-orders')
+            ->expectsOutput('Shop 101: synced 0 order(s).')
+            ->assertSuccessful();
+
+        Http::assertSentCount(1);
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/shops/999/'));
     }
 
     public function test_account_lock_prevents_overlapping_order_syncs(): void
