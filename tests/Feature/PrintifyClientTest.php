@@ -4,8 +4,11 @@
 
 namespace Tests\Feature;
 
+// db-refresh-allow: isolated sqlite for account-scoped client tests
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use RuntimeException;
 use Tests\Support\InteractsWithPrintifyAccounts;
 use Tests\TestCase;
 
@@ -63,5 +66,32 @@ class PrintifyClientTest extends TestCase
         Http::assertSent(fn ($request) => $request->method() === 'POST'
             && $request->hasHeader('Authorization', 'Bearer test-pat')
             && $request['external_id'] === '13-14975-00010');
+    }
+
+    public function test_it_surfaces_and_logs_printifys_error_reason_instead_of_a_generic_message(): void
+    {
+        $this->configurePrintifyHttpBase();
+        // Mirrors the real 3878/3879 failure: Printify 404s on a deleted product.
+        Http::fake(['printify.test/*' => Http::response([
+            'status' => 'error',
+            'message' => 'Operation failed.',
+            'errors' => ['reason' => 'Product with id "6a79" and shop 19266403 is missing.'],
+        ], 404)]);
+        Log::spy();
+
+        try {
+            $this->clientWithToken('test-pat')->post('/shops/101/orders.json', ['external_id' => 'x']);
+            $this->fail('Expected a RuntimeException from the failed Printify request.');
+        } catch (RuntimeException $exception) {
+            $this->assertStringContainsString('404', $exception->getMessage());
+            $this->assertStringContainsString('is missing', $exception->getMessage());
+            $this->assertStringNotContainsString('Printify request failed.', $exception->getMessage());
+        }
+
+        Log::shouldHaveReceived('warning')->withArgs(
+            fn ($event, $context) => $event === 'printify.request_failed'
+                && $context['status'] === 404
+                && str_contains($context['body'], 'is missing')
+        )->once();
     }
 }
