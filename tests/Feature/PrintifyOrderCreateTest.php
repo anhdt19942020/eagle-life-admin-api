@@ -182,6 +182,49 @@ class PrintifyOrderCreateTest extends TestCase
         $this->assertSame(1, PrintifyOrder::count());
     }
 
+    public function test_create_reconciles_when_printify_returns_409_already_exists(): void
+    {
+        $this->actingCreator();
+        $this->configurePrintifyHttp();
+        $shop = $this->readyShop();
+        $this->seedMappedVariant($shop);
+        $order = $this->importOrderWithSku('SKU-M');
+        $externalId = '13-14975-00010';
+
+        // No local PrintifyOrder row exists, so the local guard passes and the
+        // service POSTs. Printify rejects with 409 because it already holds the
+        // order; the reconcile then lists the shop's orders and backfills.
+        Http::fake([
+            'printify.test/v1/shops/101/orders.json*' => function ($request) use ($externalId) {
+                if ($request->method() === 'POST') {
+                    return Http::response(['error' => 'Order already exists for the given external_id.'], 409);
+                }
+
+                return Http::response([
+                    'data' => [[
+                        'id' => 'pog-remote',
+                        'external_id' => $externalId,
+                        'status' => 'on-hold',
+                    ]],
+                    'last_page' => 1,
+                ], 200);
+            },
+        ]);
+
+        $this->postJson("/api/orders/{$order->id}/printify-create", ['shop_id' => $shop->id])
+            ->assertOk()
+            ->assertJsonPath('data.created', false)
+            ->assertJsonPath('data.printify_order.printify_order_id', 'pog-remote')
+            ->assertJsonPath('data.printify_order.ebay_order_number', $externalId);
+
+        $this->assertDatabaseHas('printify_orders', [
+            'order_id' => $order->id,
+            'printify_order_id' => 'pog-remote',
+            'ebay_order_number' => $externalId,
+        ]);
+        $this->assertSame(1, PrintifyOrder::count());
+    }
+
     public function test_create_returns_422_when_payload_not_ready(): void
     {
         $this->actingCreator();

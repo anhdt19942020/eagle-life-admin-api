@@ -5,6 +5,7 @@ namespace App\Services\Printify;
 use App\Models\Order;
 use App\Models\PrintifyOrder;
 use App\Models\PrintifyShop;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -13,6 +14,7 @@ class PrintifyOrderCreateService
     public function __construct(
         private readonly PrintifyOrderPreviewService $preview,
         private readonly PrintifyClientFactory $factory,
+        private readonly PrintifySyncService $sync,
     ) {}
 
     /**
@@ -44,10 +46,25 @@ class PrintifyOrderCreateService
 
         $attemptKey = 'create:'.$shop->id.':'.$externalId;
         // preview() above already guarantees shop->account is non-null and active.
-        $remote = $this->factory->for($shop->account)->post(
-            "/shops/{$shop->printify_shop_id}/orders.json",
-            $preview['payload']
-        );
+        try {
+            $remote = $this->factory->for($shop->account)->post(
+                "/shops/{$shop->printify_shop_id}/orders.json",
+                $preview['payload']
+            );
+        } catch (RuntimeException $exception) {
+            // Printify's external_id uniqueness is the authority: a 409 means the
+            // order already exists on Printify but is absent from our local table
+            // (lost write, out-of-band creation, or created under another shop).
+            // Reconcile from Printify instead of surfacing a fatal error.
+            $reconciled = $this->reconcileExistingRemote($shop, $externalId, $exception);
+
+            return [
+                'created' => false,
+                'printify_order' => $reconciled,
+                'remote' => [],
+                'preview' => $preview,
+            ];
+        }
 
         $remoteId = (string) ($remote['id'] ?? '');
         if ($remoteId === '') {
@@ -81,5 +98,42 @@ class PrintifyOrderCreateService
             'remote' => $remote,
             'preview' => $preview,
         ];
+    }
+
+    /**
+     * Recover the local PrintifyOrder record for an order Printify already holds.
+     * Pulls this shop's remote orders (syncOrders upserts by external_id) and
+     * returns the now-backfilled record. Re-throws when the failure is not a
+     * duplicate-external_id 409, or when reconciliation still finds no match.
+     */
+    private function reconcileExistingRemote(PrintifyShop $shop, string $externalId, RuntimeException $exception): PrintifyOrder
+    {
+        if (! $this->isAlreadyExistsConflict($exception)) {
+            throw $exception;
+        }
+
+        $this->sync->syncOrders($shop->account, (int) $shop->printify_shop_id);
+
+        $reconciled = PrintifyOrder::query()
+            ->where('printify_shop_id', $shop->id)
+            ->where('ebay_order_number', $externalId)
+            ->first();
+
+        if ($reconciled === null) {
+            throw $exception;
+        }
+
+        return $reconciled;
+    }
+
+    private function isAlreadyExistsConflict(RuntimeException $exception): bool
+    {
+        $previous = $exception->getPrevious();
+        if (! $previous instanceof RequestException) {
+            return false;
+        }
+
+        return $previous->response->status() === 409
+            && str_contains($previous->response->body(), 'already exists');
     }
 }
