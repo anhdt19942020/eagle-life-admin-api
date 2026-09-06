@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Traits\ApiResponse;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
@@ -50,6 +51,60 @@ class OrderController extends Controller
         $payload['summary'] = $summary;
 
         return $this->success($payload, 'Lấy danh sách đơn hàng thành công');
+    }
+
+    /**
+     * Orders count + eBay amount grouped by eBay order date, for trend charts.
+     * Reuses the same visibility, filters, and eBay-amount definition as the
+     * list summary so a day's numbers match the totals shown elsewhere.
+     */
+    public function dailySummary(Request $request)
+    {
+        $request->validate([
+            'from_date' => 'required|date',
+            'to_date' => 'required|date|after_or_equal:from_date',
+        ]);
+
+        $query = Order::query()->visibleTo($request->user());
+        $this->applyOrderFilters($query, $request);
+
+        if ($request->filled('seller_id')) {
+            $query->where('seller_id', $request->seller_id);
+        }
+
+        $rows = $query
+            ->reorder()
+            ->leftJoin('order_line_items', 'order_line_items.order_id', '=', 'orders.id')
+            ->selectRaw(
+                'DATE(orders.ebay_created_at) as date, '.
+                'COUNT(DISTINCT orders.id) as orders_count, '.
+                'COALESCE(SUM(order_line_items.total_amount), 0) as ebay_amount'
+            )
+            ->whereNotNull('orders.ebay_created_at')
+            ->groupBy('date')
+            ->orderBy('date')
+            ->get();
+
+        // Fill missing days with zeros so the chart has a continuous x-axis.
+        $byDate = $rows->keyBy('date');
+        $series = [];
+        $cursor = Carbon::parse($request->from_date)->startOfDay();
+        $end = Carbon::parse($request->to_date)->startOfDay();
+
+        while ($cursor->lte($end)) {
+            $key = $cursor->toDateString();
+            $row = $byDate->get($key);
+
+            $series[] = [
+                'date' => $key,
+                'orders_count' => $row ? (int) $row->orders_count : 0,
+                'ebay_amount' => number_format($row ? (float) $row->ebay_amount : 0, 2, '.', ''),
+            ];
+
+            $cursor->addDay();
+        }
+
+        return $this->success($series, 'Lấy thống kê đơn hàng theo ngày thành công');
     }
 
     public function show(Request $request, $id)

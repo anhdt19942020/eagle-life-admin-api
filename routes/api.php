@@ -39,6 +39,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/orders/{id}/restore', [OrderController::class, 'restore']);
     Route::delete('/orders/{id}', [OrderController::class, 'destroy'])
         ->middleware('permission:orders.delete');
+    Route::get('/orders/daily-summary', [OrderController::class, 'dailySummary']);
     Route::apiResource('orders', OrderController::class)->except(['store', 'destroy']);
 
     // Import eBay - Phase 6
