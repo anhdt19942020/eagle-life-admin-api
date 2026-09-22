@@ -9,6 +9,7 @@ use App\Models\PrintifyProduct;
 use App\Models\PrintifyProductVariant;
 use App\Models\PrintifyShop;
 use App\Services\Printify\PrintifySyncService;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -136,6 +137,15 @@ class PrintifySyncTest extends TestCase
 
         Http::assertSentCount(1);
         Http::assertNotSent(fn ($request) => str_contains($request->url(), '/shops/999/'));
+    }
+
+    public function test_scheduled_order_sync_limits_each_shop_to_one_page(): void
+    {
+        $event = collect(app(Schedule::class)->events())
+            ->first(fn ($event) => str_contains($event->command, 'printify:sync-orders'));
+
+        $this->assertNotNull($event);
+        $this->assertStringContainsString('printify:sync-orders --limit-pages=1 --sync-timeout=5', $event->command);
     }
 
     public function test_account_lock_prevents_overlapping_order_syncs(): void

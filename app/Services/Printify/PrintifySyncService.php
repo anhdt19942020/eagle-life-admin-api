@@ -179,14 +179,14 @@ class PrintifySyncService
         return $local->load('variants');
     }
 
-    public function syncOrders(PrintifyAccount $account, int $remoteShopId, ?int $limitPages = null): int
+    public function syncOrders(PrintifyAccount $account, int $remoteShopId, ?int $limitPages = null, ?int $timeout = null): int
     {
-        return $this->accountLocked($account, fn () => $this->locked($account, $remoteShopId, function (PrintifyShop $shop) use ($account, $remoteShopId, $limitPages): int {
+        return $this->accountLocked($account, fn () => $this->locked($account, $remoteShopId, function (PrintifyShop $shop) use ($account, $remoteShopId, $limitPages, $timeout): int {
             $shop->update(['orders_sync_state' => 'syncing']);
 
             try {
                 $client = $this->factory->for($account);
-                $pages = $this->pages($client, "/shops/{$remoteShopId}/orders.json", $limitPages);
+                $pages = $this->pages($client, "/shops/{$remoteShopId}/orders.json", $limitPages, $timeout, $timeout === null ? null : 0);
                 $externalIds = collect($pages['items'])->pluck('external_id')->filter()->unique();
                 $conflictedExternalIds = PrintifyOrder::whereIn('ebay_order_number', $externalIds)->where('printify_shop_id', '!=', $shop->id)->pluck('ebay_order_number')->all();
                 foreach ($pages['items'] as $remote) {
@@ -258,13 +258,13 @@ class PrintifySyncService
         });
     }
 
-    private function pages(PrintifyClient $client, string $path, ?int $limitPages): array
+    private function pages(PrintifyClient $client, string $path, ?int $limitPages, ?int $timeout = null, ?int $retryTimes = null): array
     {
         $items = [];
         $exhaustive = $limitPages === null;
 
         for ($page = 1; $limitPages === null || $page <= $limitPages; $page++) {
-            $response = $client->get($path, ['page' => $page, 'limit' => 50]);
+            $response = $client->get($path, ['page' => $page, 'limit' => 50], $timeout, $retryTimes);
             if (! array_key_exists('data', $response) || ! is_array($response['data'])) {
                 throw new RuntimeException('Printify pagination response is invalid.');
             }

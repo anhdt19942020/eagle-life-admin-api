@@ -9,7 +9,7 @@ use Throwable;
 
 class SyncPrintifyOrders extends Command
 {
-    protected $signature = 'printify:sync-orders {--shop-id=} {--limit-pages=}';
+    protected $signature = 'printify:sync-orders {--shop-id=} {--limit-pages=} {--sync-timeout=}';
 
     protected $description = 'Sync Printify orders for active shops (account-scoped, sequential)';
 
@@ -27,6 +27,9 @@ class SyncPrintifyOrders extends Command
         $limitPages = $this->option('limit-pages') !== null && $this->option('limit-pages') !== ''
             ? (int) $this->option('limit-pages')
             : null;
+        $syncTimeout = $this->option('sync-timeout') !== null && $this->option('sync-timeout') !== ''
+            ? max(1, (int) $this->option('sync-timeout'))
+            : null;
 
         $synced = 0;
         $skipped = 0;
@@ -37,11 +40,12 @@ class SyncPrintifyOrders extends Command
             if ($account === null || ! $account->is_active) {
                 $skipped++;
                 $this->warn("Shop {$shop->printify_shop_id}: skipped (inactive or missing account).");
+
                 continue;
             }
 
             try {
-                $count = $sync->syncOrders($account, (int) $shop->printify_shop_id, $limitPages);
+                $count = $sync->syncOrders($account, (int) $shop->printify_shop_id, $limitPages, $syncTimeout);
                 $synced += $count;
                 $this->info("Shop {$shop->printify_shop_id}: synced {$count} order(s).");
             } catch (Throwable $exception) {

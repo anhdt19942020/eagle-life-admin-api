@@ -20,10 +20,10 @@ class PrintifyClient
         }
     }
 
-    public function get(string $path, array $query = []): array
+    public function get(string $path, array $query = [], ?int $timeout = null, ?int $retryTimes = null): array
     {
         try {
-            return $this->request()->get(ltrim($path, '/'), $query)->throw()->json();
+            return $this->request($timeout, $retryTimes)->get(ltrim($path, '/'), $query)->throw()->json();
         } catch (RequestException $exception) {
             throw $this->wrap('GET', $path, $exception);
         }
@@ -80,15 +80,18 @@ class PrintifyClient
         return trim($body) !== '' ? mb_strimwidth($body, 0, 200, '…') : 'unknown error';
     }
 
-    private function request(): PendingRequest
+    private function request(?int $timeout = null, ?int $retryTimes = null): PendingRequest
     {
+        $timeout ??= (int) config('services.printify.timeout');
+        $retryTimes ??= (int) config('services.printify.retry_times');
+
         return $this->http
             ->baseUrl((string) config('services.printify.base_url'))
             ->acceptJson()
             ->withToken($this->token)
-            ->timeout((int) config('services.printify.timeout'))
+            ->timeout($timeout)
             ->retry(
-                (int) config('services.printify.retry_times'),
+                $retryTimes,
                 (int) config('services.printify.retry_sleep_ms'),
                 fn ($exception) => $exception instanceof RequestException
             );
