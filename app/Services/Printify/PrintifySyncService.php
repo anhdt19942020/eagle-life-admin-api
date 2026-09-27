@@ -195,10 +195,7 @@ class PrintifySyncService
                     if ($hasConflict) {
                         PrintifyOrder::where('ebay_order_number', $externalId)->where('printify_shop_id', '!=', $shop->id)->update(['has_conflict' => true, 'intent_state' => 'conflict']);
                     }
-                    PrintifyOrder::updateOrCreate(
-                        ['printify_shop_id' => $shop->id, 'printify_order_id' => (string) $remote['id']],
-                        ['ebay_order_number' => $externalId, 'status' => $remote['status'] ?? null, 'has_conflict' => $hasConflict, 'intent_state' => $hasConflict ? 'conflict' : 'synced', 'synced_at' => now()],
-                    );
+                    $this->upsertSyncedOrder($shop, $remote, $externalId, $hasConflict);
                 }
 
                 $this->linkOrderIds($shop);
@@ -217,6 +214,42 @@ class PrintifySyncService
                 throw $exception;
             }
         }));
+    }
+
+    /**
+     * Match by external_id first when present: a batch-enqueued row already
+     * exists with printify_order_id=NULL (queued/processing/failed, no remote
+     * id yet), keyed on (shop, ebay_order_number). Matching by
+     * (shop, printify_order_id) there would insert a duplicate and violate the
+     * (shop, ebay_order_number) unique index instead of attaching to it.
+     * Falls back to (shop, printify_order_id) when Printify sends no
+     * external_id (legacy/unmapped orders).
+     */
+    private function upsertSyncedOrder(PrintifyShop $shop, array $remote, ?string $externalId, bool $hasConflict): void
+    {
+        $key = $externalId !== null
+            ? ['printify_shop_id' => $shop->id, 'ebay_order_number' => $externalId]
+            : ['printify_shop_id' => $shop->id, 'printify_order_id' => (string) $remote['id']];
+
+        $order = PrintifyOrder::updateOrCreate($key, [
+            'printify_order_id' => (string) $remote['id'],
+            'ebay_order_number' => $externalId,
+            'status' => $remote['status'] ?? null,
+            'has_conflict' => $hasConflict,
+            'intent_state' => $hasConflict ? 'conflict' : 'synced',
+            'last_error' => null,
+            'synced_at' => now(),
+        ]);
+
+        // Backfill the linked Order the same way create-on-demand does
+        // (PrintifyOrderCreateService::create), so a batch-queued order that
+        // Printify already has shows its remote id once sync catches up.
+        if ($order->order_id !== null) {
+            $order->order()->update([
+                'printify_order_id' => $order->printify_order_id,
+                'printify_created_at' => DB::raw('COALESCE(printify_created_at, CURRENT_TIMESTAMP)'),
+            ]);
+        }
     }
 
     private function linkOrderIds(PrintifyShop $shop): void

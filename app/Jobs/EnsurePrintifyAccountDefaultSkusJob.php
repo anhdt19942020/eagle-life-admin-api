@@ -4,18 +4,26 @@ namespace App\Jobs;
 
 use App\Models\PrintifyAccount;
 use App\Services\Printify\PrintifyDefaultSkuEnsurer;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
-class EnsurePrintifyAccountDefaultSkusJob implements ShouldQueue
+class EnsurePrintifyAccountDefaultSkusJob implements ShouldQueue, ShouldBeUnique
 {
     use Queueable;
 
     public int $tries = 2;
 
     public int $timeout = 180;
+    public int $uniqueFor = 3600;
+
+    public function uniqueId(): string
+    {
+        return (string) $this->accountId;
+    }
+
 
     public function __construct(public readonly int $accountId) {}
 

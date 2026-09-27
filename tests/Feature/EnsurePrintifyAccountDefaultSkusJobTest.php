@@ -10,6 +10,7 @@ use App\Models\PrintifyProductVariant;
 use App\Services\Printify\PrintifyDefaultSkuEnsurer;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Tests\Support\InteractsWithPrintifyAccounts;
 use Tests\TestCase;
 
@@ -17,6 +18,19 @@ class EnsurePrintifyAccountDefaultSkusJobTest extends TestCase
 {
     use DatabaseMigrations;
     use InteractsWithPrintifyAccounts;
+
+    public function test_duplicate_dispatches_for_one_account_push_only_one_job(): void
+    {
+        Queue::fake();
+        $account = $this->makePrintifyAccount();
+        $other = $this->makePrintifyAccount('other@example.com', 'other-token');
+
+        EnsurePrintifyAccountDefaultSkusJob::dispatch($account->id);
+        EnsurePrintifyAccountDefaultSkusJob::dispatch($account->id);
+        EnsurePrintifyAccountDefaultSkusJob::dispatch($other->id);
+
+        Queue::assertPushed(EnsurePrintifyAccountDefaultSkusJob::class, 2);
+    }
 
     public function test_job_seeds_one_product_and_sets_unique_default_sku(): void
     {

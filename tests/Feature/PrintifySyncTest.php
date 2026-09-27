@@ -4,6 +4,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Order;
 use App\Models\PrintifyOrder;
 use App\Models\PrintifyProduct;
 use App\Models\PrintifyProductVariant;
@@ -96,6 +97,76 @@ class PrintifySyncTest extends TestCase
 
         $this->assertSame(2, PrintifyOrder::where('has_conflict', true)->count());
         $this->assertSame('conflict', PrintifyShop::where('printify_shop_id', 102)->value('orders_sync_state'));
+    }
+
+    public function test_sync_attaches_remote_id_to_an_existing_queued_row_by_external_id(): void
+    {
+        $account = $this->makePrintifyAccount();
+        $shop = $this->makePrintifyShop($account);
+        $order = Order::create(['ebay_order_id' => '13-14975-00099', 'ebay_order_number' => '13-14975-00099', 'ebay_created_at' => now()]);
+        $queued = PrintifyOrder::create([
+            'order_id' => $order->id,
+            'printify_shop_id' => $shop->id,
+            'printify_order_id' => null,
+            'ebay_order_number' => '13-14975-00099',
+            'intent_state' => 'queued',
+        ]);
+        $this->configurePrintifyHttpBase();
+        Http::fake(['printify.test/*' => Http::response([
+            'data' => [['id' => 'remote-99', 'external_id' => '13-14975-00099', 'status' => 'pending']],
+            'last_page' => 1,
+        ])]);
+
+        app(PrintifySyncService::class)->syncOrders($account, 101);
+
+        $this->assertSame(1, PrintifyOrder::count());
+        $queued->refresh();
+        $this->assertSame('remote-99', $queued->printify_order_id);
+        $this->assertSame('synced', $queued->intent_state);
+        $this->assertNull($queued->last_error);
+        $this->assertSame('remote-99', $order->fresh()->printify_order_id);
+        $this->assertNotNull($order->fresh()->printify_created_at);
+    }
+
+    public function test_sync_marks_a_queued_row_conflict_when_same_external_id_lands_in_another_shop(): void
+    {
+        $account = $this->makePrintifyAccount();
+        $shopA = $this->makePrintifyShop($account, ['printify_shop_id' => 101, 'title' => 'A']);
+        $shopB = $this->makePrintifyShop($account, ['printify_shop_id' => 102, 'title' => 'B']);
+        $queued = PrintifyOrder::create([
+            'printify_shop_id' => $shopA->id,
+            'printify_order_id' => null,
+            'ebay_order_number' => 'dup-001',
+            'intent_state' => 'queued',
+        ]);
+        $this->configurePrintifyHttpBase();
+        Http::fake(['printify.test/*' => Http::response([
+            'data' => [['id' => 'remote-b', 'external_id' => 'dup-001', 'status' => 'pending']],
+            'last_page' => 1,
+        ])]);
+
+        app(PrintifySyncService::class)->syncOrders($account, 102);
+
+        $this->assertSame('conflict', $queued->fresh()->intent_state);
+        $this->assertTrue((bool) $queued->fresh()->has_conflict);
+        $this->assertSame('conflict', PrintifyShop::where('printify_shop_id', 102)->value('orders_sync_state'));
+        $queued->delete(); // Rollback must not make this intent-only row NOT NULL.
+    }
+
+    public function test_sync_without_external_id_still_upserts_by_printify_order_id(): void
+    {
+        $account = $this->makePrintifyAccount();
+        $shop = $this->makePrintifyShop($account);
+        $this->configurePrintifyHttpBase();
+        Http::fake(['printify.test/*' => Http::response([
+            'data' => [['id' => 'no-ext', 'status' => 'pending']],
+            'last_page' => 1,
+        ])]);
+
+        app(PrintifySyncService::class)->syncOrders($account, 101);
+        app(PrintifySyncService::class)->syncOrders($account, 101);
+
+        $this->assertSame(1, PrintifyOrder::where('printify_order_id', 'no-ext')->count());
     }
 
     public function test_scheduled_order_sync_uses_each_shop_account_token(): void

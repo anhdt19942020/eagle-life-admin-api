@@ -66,4 +66,5 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/printify/products', [PrintifyProductController::class, 'index'])->middleware('permission:printify.catalog.view');
     Route::post('/orders/{order}/printify-preview', [PrintifyOrderController::class, 'preview'])->middleware('permission:printify.order.create');
     Route::post('/orders/{order}/printify-create', [PrintifyOrderController::class, 'create'])->middleware('permission:printify.order.create');
+    Route::post('/orders/printify-create-batch', [PrintifyOrderController::class, 'createBatch'])->middleware('permission:printify.order.create');
 });

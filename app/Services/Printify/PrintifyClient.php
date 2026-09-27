@@ -29,10 +29,10 @@ class PrintifyClient
         }
     }
 
-    public function post(string $path, array $payload = []): array
+    public function post(string $path, array $payload = [], ?int $retryTimes = null): array
     {
         try {
-            return $this->request()->post(ltrim($path, '/'), $payload)->throw()->json();
+            return $this->request(retryTimes: $retryTimes)->post(ltrim($path, '/'), $payload)->throw()->json();
         } catch (RequestException $exception) {
             throw $this->wrap('POST', $path, $exception);
         }
