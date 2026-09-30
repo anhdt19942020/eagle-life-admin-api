@@ -53,7 +53,8 @@ class CreatePrintifyOrderJob implements ShouldQueue
         }
 
         if ($this->attempts() >= $this->tries) {
-            $this->fail('Printify order create retry limit reached');
+            $this->fail('Printify order create retry limit reached: '.$result->last_error);
+
             return;
         }
 
@@ -83,17 +84,32 @@ class CreatePrintifyOrderJob implements ShouldQueue
 
     public function failed(?Throwable $exception): void
     {
-        PrintifyOrder::whereKey($this->printifyOrderId)
-            ->whereIn('intent_state', ['queued', 'processing'])
-            ->update([
+        $row = DB::transaction(function () use ($exception): ?PrintifyOrder {
+            $row = PrintifyOrder::whereKey($this->printifyOrderId)
+                ->whereIn('intent_state', ['queued', 'processing'])
+                ->lockForUpdate()
+                ->first();
+            if ($row === null) {
+                return null;
+            }
+
+            $row->forceFill([
                 'intent_state' => 'failed',
-                'last_error' => mb_strimwidth('Printify order create job failed: '.($exception?->getMessage() ?? 'unknown'), 0, 500, '…'),
-            ]);
+                'last_error' => $row->last_error ?: 'Printify order create job failed ('.($exception !== null ? class_basename($exception) : 'unknown').').',
+            ])->save();
+
+            return $row;
+        });
+        if ($row === null) {
+            return;
+        }
 
         Log::error('printify_order_create.job_failed', [
-            'printify_order_id' => $this->printifyOrderId,
+            'printify_order_id' => $row->id,
+            'order_id' => $row->order_id,
+            'printify_shop_id' => $row->printify_shop_id,
             'exception_class' => $exception !== null ? $exception::class : null,
-            'message' => $exception?->getMessage(),
+            'last_error' => $row->last_error,
         ]);
     }
 }

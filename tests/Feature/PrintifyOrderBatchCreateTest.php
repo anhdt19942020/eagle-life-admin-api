@@ -18,6 +18,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Permission;
@@ -286,7 +287,7 @@ class PrintifyOrderBatchCreateTest extends TestCase
         $order = $this->importOrderWithSku('SKU-M');
         $row = $this->queuedRow($shop, $order);
         Http::fake(function () {
-            throw new ConnectionException('timed out');
+            throw new ConnectionException('cURL error 28: timeout for https://example.test/?token=private-token&email=buyer@example.test');
         });
 
         $job = (new CreatePrintifyOrderJob($row->id))->withFakeQueueInteractions();
@@ -294,7 +295,9 @@ class PrintifyOrderBatchCreateTest extends TestCase
         $job->assertReleased(10);
 
         $this->assertSame('queued', $row->fresh()->intent_state);
-        $this->assertNull($row->fresh()->last_error);
+        $this->assertStringContainsString('cURL error 28', $row->fresh()->last_error);
+        $this->assertStringNotContainsString('private-token', $row->fresh()->last_error);
+        $this->assertStringNotContainsString('buyer@example.test', $row->fresh()->last_error);
     }
 
     public function test_job_429_releases_row_to_queued(): void
@@ -311,6 +314,7 @@ class PrintifyOrderBatchCreateTest extends TestCase
         $job->assertReleased(10);
 
         $this->assertSame('queued', $row->fresh()->intent_state);
+        $this->assertStringContainsString('HTTP 429', $row->fresh()->last_error);
     }
 
     public function test_job_permanent_4xx_marks_failed_with_reason(): void
@@ -377,6 +381,8 @@ class PrintifyOrderBatchCreateTest extends TestCase
         }
 
         $this->assertSame('queued', $row->fresh()->intent_state);
+        $this->assertStringContainsString('HTTP 409', $row->fresh()->last_error);
+        $this->assertStringContainsString('sync lock busy', $row->fresh()->last_error);
     }
 
     public function test_job_ignores_a_row_another_worker_already_claimed(): void
@@ -515,6 +521,9 @@ class PrintifyOrderBatchCreateTest extends TestCase
         $job->assertNotReleased();
         $this->assertSame('synced', $row->fresh()->intent_state);
         $this->assertSame('remote-order', $row->fresh()->printify_order_id);
+        $job->failed(new \RuntimeException('late worker failure'));
+        $this->assertSame('synced', $row->fresh()->intent_state);
+        $this->assertNull($row->fresh()->last_error);
     }
 
     public function test_last_retry_attempt_fails_instead_of_releasing_again(): void
@@ -532,6 +541,7 @@ class PrintifyOrderBatchCreateTest extends TestCase
 
         $job->assertFailed();
         $job->assertNotReleased();
+        $this->assertStringContainsString('HTTP 429', $job->job->failedWith->getMessage());
     }
 
     public function test_single_transient_create_dispatches_one_retry_job(): void
@@ -546,11 +556,98 @@ class PrintifyOrderBatchCreateTest extends TestCase
 
         $this->postJson("/api/orders/{$order->id}/printify-create", ['shop_id' => $shop->id])
             ->assertOk()
-            ->assertJsonPath('data.state', 'queued');
+            ->assertJsonPath('data.state', 'queued')
+            ->assertJsonPath('data.printify_order.last_error', fn ($reason) => is_string($reason) && str_contains($reason, 'HTTP 429'));
 
         Queue::assertPushed(CreatePrintifyOrderJob::class, 1);
         $this->assertSame('queued', PrintifyOrder::first()->intent_state);
         Http::assertSentCount(1);
     }
 
+    public function test_retry_reason_is_updated_then_cleared_after_success(): void
+    {
+        $this->configurePrintifyHttpBase();
+        $shop = $this->readyShop();
+        $this->seedMappedVariant($shop);
+        $order = $this->importOrderWithSku('SKU-M');
+        $row = $this->queuedRow($shop, $order);
+        Http::fake(['printify.test/v1/shops/101/orders.json' => Http::sequence()
+            ->push(['message' => 'rate limited'], 429)
+            ->push(['message' => 'unavailable private-token buyer@example.test'], 503)
+            ->push(['id' => 'remote-recovered', 'status' => 'pending'])]);
+        $job = (new CreatePrintifyOrderJob($row->id))->withFakeQueueInteractions();
+
+        $job->handle(app(PrintifyOrderCreateService::class));
+        $this->assertStringContainsString('HTTP 429', $row->fresh()->last_error);
+        $job->handle(app(PrintifyOrderCreateService::class));
+        $this->assertStringContainsString('HTTP 503', $row->fresh()->last_error);
+        $this->assertStringNotContainsString('HTTP 429', $row->fresh()->last_error);
+        $this->assertStringNotContainsString('private-token', $row->fresh()->last_error);
+        $this->assertStringNotContainsString('buyer@example.test', $row->fresh()->last_error);
+
+        $job->handle(app(PrintifyOrderCreateService::class));
+        $this->assertSame('created', $row->fresh()->intent_state);
+        $this->assertSame('remote-recovered', $row->fresh()->printify_order_id);
+        $this->assertNull($row->fresh()->last_error);
+    }
+
+    public function test_reconciliation_miss_preserves_duplicate_order_reason(): void
+    {
+        $this->configurePrintifyHttpBase();
+        $shop = $this->readyShop();
+        $this->seedMappedVariant($shop);
+        $order = $this->importOrderWithSku('SKU-M');
+        $row = $this->queuedRow($shop, $order);
+        Http::fake(['printify.test/v1/shops/101/orders.json*' => Http::sequence()
+            ->push(['error' => 'Order already exists for the given external_id.'], 409)
+            ->push(['data' => [], 'last_page' => 2])]);
+
+        $job = (new CreatePrintifyOrderJob($row->id))->withFakeQueueInteractions();
+        $job->handle(app(PrintifyOrderCreateService::class));
+        $job->assertReleased(10);
+
+        $this->assertStringContainsString('HTTP 409', $row->fresh()->last_error);
+        $this->assertStringContainsString('not found on first page', $row->fresh()->last_error);
+    }
+
+    public function test_failed_callback_preserves_retry_reason_in_row_and_error_log(): void
+    {
+        $this->configurePrintifyHttpBase();
+        $shop = $this->readyShop();
+        $this->seedMappedVariant($shop);
+        $order = $this->importOrderWithSku('SKU-M');
+        $row = $this->queuedRow($shop, $order);
+        Http::fake(['printify.test/v1/shops/101/orders.json' => Http::response(['error' => 'rate limited'], 429)]);
+        $job = (new CreatePrintifyOrderJob($row->id))->withFakeQueueInteractions();
+        $job->handle(app(PrintifyOrderCreateService::class));
+        Log::spy();
+
+        $job->failed(new \RuntimeException('retry limit reached private-token buyer@example.test'));
+
+        $this->assertSame('failed', $row->fresh()->intent_state);
+        $this->assertStringContainsString('HTTP 429', $row->fresh()->last_error);
+        $this->assertStringNotContainsString('private-token', $row->fresh()->last_error);
+        Log::shouldHaveReceived('error')->once()->withArgs(function ($event, $context) use ($row) {
+            return $event === 'printify_order_create.job_failed'
+                && $context['printify_order_id'] === $row->id
+                && str_contains($context['last_error'], 'HTTP 429')
+                && ! str_contains(json_encode($context), 'private-token')
+                && ! str_contains(json_encode($context), 'buyer@example.test');
+        });
+    }
+
+    public function test_failed_callback_without_retry_reason_stores_safe_exception_type(): void
+    {
+        $shop = $this->readyShop();
+        $order = $this->importOrderWithSku('SKU-M');
+        $row = $this->queuedRow($shop, $order);
+        Log::spy();
+
+        (new CreatePrintifyOrderJob($row->id))->failed(new \RuntimeException('private-token buyer@example.test'));
+
+        $this->assertSame('failed', $row->fresh()->intent_state);
+        $this->assertStringContainsString('RuntimeException', $row->fresh()->last_error);
+        $this->assertStringNotContainsString('private-token', $row->fresh()->last_error);
+        $this->assertStringNotContainsString('buyer@example.test', $row->fresh()->last_error);
+    }
 }

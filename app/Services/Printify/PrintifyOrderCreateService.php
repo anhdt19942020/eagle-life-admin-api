@@ -216,7 +216,7 @@ class PrintifyOrderCreateService
         } catch (ConnectionException $exception) {
             // Ambiguous: the request may have reached Printify before the
             // timeout. Leave queued; the next attempt's 409 (if any) reconciles.
-            return $this->releaseForRetry($row);
+            return $this->releaseForRetry($row, 'Printify order POST: '.$this->retryFailureReason($exception));
         } catch (RuntimeException $exception) {
             return $this->handlePrintifyError($row, $shop, $order, $exception);
         }
@@ -234,7 +234,9 @@ class PrintifyOrderCreateService
                 'last_error' => null,
                 'synced_at' => now(),
             ]);
-            if (! $updated) return $row->fresh() ?? $row;
+            if (! $updated) {
+                return $row->fresh() ?? $row;
+            }
 
             $order->forceFill([
                 'printify_order_id' => $remoteId,
@@ -248,7 +250,7 @@ class PrintifyOrderCreateService
     private function handlePrintifyError(PrintifyOrder $row, PrintifyShop $shop, Order $order, RuntimeException $exception): PrintifyOrder
     {
         if ($this->isLockBusy($exception)) {
-            return $this->releaseForRetry($row);
+            return $this->releaseForRetry($row, 'Printify order POST: '.$this->retryFailureReason($exception));
         }
 
         if ($this->isAlreadyExistsConflict($exception)) {
@@ -257,17 +259,41 @@ class PrintifyOrderCreateService
 
         $status = $this->responseStatus($exception);
         if ($status === 429 || ($status !== null && $status >= 500)) {
-            return $this->releaseForRetry($row);
+            return $this->releaseForRetry($row, 'Printify order POST: '.$this->retryFailureReason($exception));
         }
 
         return $this->markFailed($row, $exception->getMessage());
     }
 
-    private function releaseForRetry(PrintifyOrder $row): PrintifyOrder
+    private function releaseForRetry(PrintifyOrder $row, string $reason): PrintifyOrder
     {
-        $this->updateClaimedRow($row, ['intent_state' => 'queued']);
+        $this->updateClaimedRow($row, [
+            'intent_state' => 'queued',
+            'last_error' => mb_strimwidth($reason, 0, 500, '…'),
+        ]);
 
         return $row->fresh() ?? $row;
+    }
+
+    private function retryFailureReason(ConnectionException|RuntimeException $exception): string
+    {
+        // Exception messages and response bodies can contain credentials or customer data.
+        if ($exception instanceof ConnectionException) {
+            $hasCurlCode = preg_match('/\bcURL error (\d{1,3})\b/', $exception->getMessage(), $matches);
+
+            return 'connection failure'.($hasCurlCode ? ' (cURL error '.$matches[1].')' : '');
+        }
+
+        $status = $this->responseStatus($exception);
+        if ($status !== null) {
+            return 'HTTP '.$status;
+        }
+
+        if ($this->isLockBusy($exception)) {
+            return 'sync lock busy';
+        }
+
+        return class_basename($exception);
     }
 
     private function markFailed(PrintifyOrder $row, string $reason): PrintifyOrder
@@ -302,7 +328,7 @@ class PrintifyOrderCreateService
         } catch (RuntimeException $syncException) {
             // Account/shop sync lock busy — treat like any other transient
             // contention and let the job retry later.
-            return $this->releaseForRetry($row);
+            return $this->releaseForRetry($row, 'Printify order reconciliation after HTTP 409: '.$this->retryFailureReason($syncException));
         }
 
         $reconciled = $row->fresh();
@@ -312,7 +338,7 @@ class PrintifyOrderCreateService
 
         // Reconcile didn't find it on page 1 (unexpected) — leave queued;
         // the 15-min pull sync (unbounded) will heal it.
-        return $this->releaseForRetry($row);
+        return $this->releaseForRetry($row, 'Printify order reconciliation after HTTP 409: matching external_id not found on first page.');
     }
 
     private function isAlreadyExistsConflict(RuntimeException $exception): bool

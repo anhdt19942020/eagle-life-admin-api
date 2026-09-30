@@ -746,6 +746,13 @@ Luồng (as implemented):
 
 **Response `data`:** `created` (bool), `printify_order`, `remote` (JSON Printify hoặc `[]` nếu đã tồn tại), `preview` (object preview hoặc `[]`).
 
+**Chẩn đoán retry:** `printify_order.last_error` giữ lý do retry gần nhất, không
+phải lịch sử mọi lần thử: bước POST/reconcile, HTTP status/mã cURL hoặc khóa
+sync đang bận. Lý do vẫn còn khi hết retry và được xóa khi tạo/đồng bộ thành công.
+Không diễn giải HTTP 200 của thao tác tiếp nhận là đã tạo thành công trên Printify;
+đọc `intent_state`. Ops đối chiếu event `printify_order_create.job_failed` mức
+`error` theo ID đơn nội bộ. Không cần bật log raw payload/response để tra lỗi.
+
 ### 6.8. Sync jobs (Ops — để sau khi ưu tiên import xong)
 
 | Artisan command | Mô tả |
